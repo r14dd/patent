@@ -8,3 +8,6 @@
 
 # local-only notes (e.g. plan source path)
 /.plan-source.md
+
+# nix build results
+/result

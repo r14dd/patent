@@ -1,8 +1,7 @@
 [package]
 name = "patent"
 version = "0.2.0"
-edition = "2021"
-rust-version = "1.80"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "A prior-art search for your code ideas — has this dev tool already been shipped?"
 repository = "https://github.com/r14dd/patent"
@@ -60,7 +59,7 @@ dirs = "6"
 fastembed = "5"
 
 # TUI (M5)
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.29"
 open = "5"
 
