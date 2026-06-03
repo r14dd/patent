@@ -99,7 +99,7 @@ cargo install --path .
 
 ### Prerequisites
 
-**Rust** (stable 1.80+) via [rustup](https://rustup.rs).
+**Rust** (stable 1.96+) via [rustup](https://rustup.rs).
 
 **Ollama** (optional, recommended) — powers the AI verdict. Skip it and use
 `--fast`, or just let `patent` fall back to a similarity-only verdict:
