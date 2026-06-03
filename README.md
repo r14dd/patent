@@ -8,6 +8,7 @@ find the state of the art in seconds, without leaving the terminal.
 [![CI](https://github.com/r14dd/patent/actions/workflows/ci.yml/badge.svg)](https://github.com/r14dd/patent/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/r14dd/patent?style=flat&logo=github)](https://github.com/r14dd/patent/stargazers)
 [![license: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![Built With Ratatui](https://ratatui.rs/built-with-ratatui/badge.svg)](https://ratatui.rs/)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/r14dd/patent/main/demo.gif" alt="patent in action" width="720">
