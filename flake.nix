@@ -54,10 +54,33 @@
           # rank() integration tests download the embedding model (network).
           doCheck = false;
         };
+
+        dockerImage = pkgs.dockerTools.buildImage {
+          name = patent.pname;
+          tag = patent.version;
+
+          copyToRoot = pkgs.buildEnv {
+            name = "image-root";
+            paths = [
+              patent
+              pkgs.cacert
+            ];
+            pathsToLink = [
+              "/bin"
+              "/etc"
+            ];
+          };
+
+          config = {
+            Entrypoint = [ "/bin/patent" ];
+            Env = [ "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt" ];
+          };
+        };
       in
       {
         packages.default = patent;
         packages.patent = patent;
+        packages.dockerImage = dockerImage;
 
         apps.default = flake-utils.lib.mkApp { drv = patent; };
 
