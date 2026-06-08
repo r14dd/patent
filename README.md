@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/logo-light.svg" width="600" alt="patent">
+  <img src="https://raw.githubusercontent.com/r14dd/patent/main/.github/logo-light.svg" width="600" alt="patent">
 </p>
 
 # patent

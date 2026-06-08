@@ -78,10 +78,15 @@ impl Llm for Ollama {
                 .ok()
                 .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
                 .unwrap_or_else(|| format!("Ollama returned HTTP {}", status.as_u16()));
-            return Err(crate::Error::LlmRejected(format!(
+            let msg = format!(
                 "{reason} (model `{}`). Run `ollama pull {}`.",
                 self.model, self.model
-            )));
+            );
+            return Err(if status.is_server_error() {
+                crate::Error::LlmUnreachable(msg)
+            } else {
+                crate::Error::LlmRejected(msg)
+            });
         }
 
         let json: serde_json::Value =

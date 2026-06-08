@@ -39,6 +39,7 @@ pub mod ollama;
 pub mod openai;
 pub mod rank;
 pub mod sources;
+#[doc(hidden)]
 pub mod tui;
 pub mod verdict;
 

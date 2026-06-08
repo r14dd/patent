@@ -78,6 +78,16 @@ pub enum Saturation {
     Saturated,
 }
 
+impl Saturation {
+    pub fn exit_code(self) -> i32 {
+        match self {
+            Self::Open => 0,
+            Self::Crowded => 1,
+            Self::Saturated => 2,
+        }
+    }
+}
+
 impl std::fmt::Display for Saturation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -105,4 +115,16 @@ pub struct Verdict {
     #[serde(default)]
     pub sources_failed: Vec<Source>,
     pub caveat: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_graduated() {
+        assert_eq!(Saturation::Open.exit_code(), 0);
+        assert_eq!(Saturation::Crowded.exit_code(), 1);
+        assert_eq!(Saturation::Saturated.exit_code(), 2);
+    }
 }

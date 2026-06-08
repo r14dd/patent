@@ -379,6 +379,8 @@ fn draw(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Rect {
                 label_span(" details  "),
                 key_span("o"),
                 label_span(" open  "),
+                key_span("y"),
+                label_span(" copy  "),
                 key_span("s"),
                 label_span(" sort  "),
                 key_span("?"),
@@ -409,11 +411,23 @@ fn draw(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Rect {
             label_span(" / "),
             key_span("Enter"),
             label_span(" open  "),
+            key_span("y"),
+            label_span(" copy  "),
             key_span("Esc"),
             label_span(" close"),
         ],
     };
-    let footer = Paragraph::new(Line::from(footer_spans));
+    let footer_line = if let Some(status) = app.status_message() {
+        Line::from(Span::styled(
+            format!(" {status}"),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        Line::from(footer_spans)
+    };
+    let footer = Paragraph::new(footer_line);
     frame.render_widget(footer, footer_area);
 
     // -- overlays (drawn last so they float above everything)
@@ -589,6 +603,7 @@ fn draw_help(frame: &mut Frame) {
         help_section("Actions"),
         help_row("Enter", "Show match details"),
         help_row("o", "Open in browser"),
+        help_row("y", "Copy URL to clipboard"),
         help_row("s", "Cycle sort (similarity/popularity/name)"),
         help_row("/", "Filter matches"),
         help_row("m", "Show more / less"),
@@ -693,6 +708,7 @@ fn handle_event(app: &mut App, table_state: &TableState, table_area: Rect) -> st
                     KeyCode::Char('s') => app.cycle_sort(),
                     KeyCode::Char('?') => app.toggle_help(),
                     KeyCode::Char('o') => open_selected(app),
+                    KeyCode::Char('y') => app.yank_url(),
                     KeyCode::Enter => app.enter_detail(),
                     _ => {}
                 },
@@ -709,6 +725,7 @@ fn handle_event(app: &mut App, table_state: &TableState, table_area: Rect) -> st
                 },
                 Mode::Detail => match key.code {
                     KeyCode::Char('o') | KeyCode::Enter => open_selected(app),
+                    KeyCode::Char('y') => app.yank_url(),
                     KeyCode::Down | KeyCode::Char('j') => app.scroll_detail_down(),
                     KeyCode::Up | KeyCode::Char('k') => app.scroll_detail_up(),
                     KeyCode::Esc | KeyCode::Char('q') => app.exit_detail(),

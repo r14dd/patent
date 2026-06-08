@@ -30,7 +30,8 @@ async fn generate_sends_model_and_user_message() {
             json!({
                 "model": "gpt-4o-mini",
                 "messages": [{ "role": "user", "content": "say hi" }],
-                "temperature": 0.0
+                "temperature": 0.0,
+                "max_tokens": 512
             })
             .to_string(),
         ))

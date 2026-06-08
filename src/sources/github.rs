@@ -8,8 +8,6 @@ use crate::model::{Match, Query, Source};
 use crate::Result;
 
 const DEFAULT_BASE_URL: &str = "https://api.github.com";
-const USER_AGENT: &str = concat!("patent/", env!("CARGO_PKG_VERSION"), " (prior-art search)");
-
 /// Searches GitHub repositories.
 #[derive(Debug, Clone)]
 pub struct GitHub {
@@ -80,7 +78,6 @@ impl SourceAdapter for GitHub {
         let mut request = self
             .client
             .get(&url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
             .query(&[("q", q.as_str()), ("sort", "stars"), ("per_page", "20")]);
         if let Some(token) = &self.token {

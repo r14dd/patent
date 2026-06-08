@@ -39,6 +39,7 @@ impl Llm for OpenAi {
             "model": self.model,
             "messages": [{ "role": "user", "content": prompt }],
             "temperature": 0.0,
+            "max_tokens": 512,
         });
 
         let mut req = self.client.post(&url).json(&body);
@@ -67,10 +68,15 @@ impl Llm for OpenAi {
                 .ok()
                 .and_then(|v| v["error"]["message"].as_str().map(String::from))
                 .unwrap_or_else(|| format!("HTTP {}", status.as_u16()));
-            return Err(crate::Error::LlmRejected(format!(
+            let msg = format!(
                 "{reason} (model `{}`). Check --model and --api-key.",
                 self.model
-            )));
+            );
+            return Err(if status.is_server_error() {
+                crate::Error::LlmUnreachable(msg)
+            } else {
+                crate::Error::LlmRejected(msg)
+            });
         }
 
         // A 200 with an unexpected body (non-JSON proxy page, empty choices, null

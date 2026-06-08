@@ -44,7 +44,7 @@ fn http_client() -> reqwest::Client {
         .user_agent(concat!(
             "patent/",
             env!("CARGO_PKG_VERSION"),
-            " (prior-art search)"
+            " (prior-art search; https://github.com/r14dd/patent)"
         ))
         .build()
         .expect("failed to build HTTP client")

@@ -246,6 +246,9 @@ fn floor_level(model_level: Saturation, matches: &[Match]) -> Saturation {
 
 /// True if `word` appears in `text` as a whole word (not as part of another word).
 fn is_whole_word(text: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
     let mut remaining = text;
     while let Some(pos) = remaining.find(word) {
         let before_ok = remaining[..pos]
@@ -397,10 +400,11 @@ pub async fn assess(
     let prompt = build_prompt(query, matches, &sources_checked);
     let raw = match llm.generate(&prompt).await {
         Ok(r) => r,
-        Err(_) => {
+        Err(crate::Error::Http(_) | crate::Error::LlmUnreachable(_)) => {
             tokio::time::sleep(std::time::Duration::from_millis(800)).await;
             llm.generate(&prompt).await?
         }
+        Err(e) => return Err(e),
     };
     parse_verdict(&raw, matches, sources_checked, sources_failed)
 }

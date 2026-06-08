@@ -23,6 +23,17 @@ use serde_json::json;
 use wiremock::matchers::{header_exists, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+fn test_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!(
+            "patent/",
+            env!("CARGO_PKG_VERSION"),
+            " (prior-art search; https://github.com/r14dd/patent)"
+        ))
+        .build()
+        .unwrap()
+}
+
 /// A query whose keywords join to the string we assert on the wire.
 fn query() -> Query {
     Query {
@@ -33,7 +44,7 @@ fn query() -> Query {
 
 /// Build a `CratesIo` whose requests are aimed at the mock server.
 fn source_for(server: &MockServer) -> CratesIo {
-    CratesIo::with_base_url(reqwest::Client::new(), server.uri())
+    CratesIo::with_base_url(test_client(), server.uri())
 }
 
 /// A canonical crates.io search payload with two hits.
@@ -242,7 +253,7 @@ async fn crates_io_malformed_body_is_propagated() {
 // ---------------------------------------------------------------------------
 
 fn github_for(server: &MockServer) -> GitHub {
-    GitHub::with_base_url(reqwest::Client::new(), server.uri())
+    GitHub::with_base_url(test_client(), server.uri())
 }
 
 fn github_body() -> serde_json::Value {

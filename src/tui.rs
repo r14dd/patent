@@ -59,6 +59,7 @@ pub struct App<'a> {
     quit: bool,
     sort: SortKey,
     detail_scroll: usize,
+    status: Option<(String, std::time::Instant)>,
 }
 
 impl<'a> App<'a> {
@@ -76,6 +77,7 @@ impl<'a> App<'a> {
             quit: false,
             sort: SortKey::Similarity,
             detail_scroll: 0,
+            status: None,
         };
         app.apply_sort();
         app
@@ -253,6 +255,31 @@ impl<'a> App<'a> {
         self.detail_scroll = self.detail_scroll.saturating_sub(1);
     }
 
+    pub fn set_status(&mut self, msg: impl Into<String>) {
+        self.status = Some((msg.into(), std::time::Instant::now()));
+    }
+
+    pub fn status_message(&self) -> Option<&str> {
+        const DISPLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(2);
+        self.status
+            .as_ref()
+            .filter(|(_, t)| t.elapsed() < DISPLAY_DURATION)
+            .map(|(msg, _)| msg.as_str())
+    }
+
+    /// Copy the selected match's URL to the system clipboard via `arboard`.
+    /// Sets a status message indicating success or failure.
+    pub fn yank_url(&mut self) {
+        let Some(url) = self.selected_url() else {
+            return;
+        };
+        let url = url.to_string();
+        match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&url)) {
+            Ok(()) => self.set_status("Copied to clipboard"),
+            Err(_) => self.set_status("Clipboard unavailable"),
+        }
+    }
+
     /// The current match sort order.
     pub fn sort(&self) -> SortKey {
         self.sort
@@ -322,5 +349,73 @@ impl<'a> App<'a> {
         } else if self.cursor >= limit {
             self.cursor = limit - 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Match, Saturation, Source, Verdict};
+    use crate::verdict::CAVEAT;
+
+    fn test_verdict() -> Verdict {
+        Verdict {
+            level: Saturation::Open,
+            headline: "Nothing close found.".into(),
+            gaps: vec![],
+            sources_checked: vec![Source::GitHub],
+            sources_failed: vec![],
+            caveat: CAVEAT.to_string(),
+        }
+    }
+
+    fn test_matches() -> Vec<Match> {
+        vec![Match {
+            name: "example-tool".into(),
+            source: Source::CratesIo,
+            url: "https://crates.io/crates/example-tool".into(),
+            description: "an example".into(),
+            popularity: Some(100),
+            similarity: 0.8,
+        }]
+    }
+
+    #[test]
+    fn set_status_is_visible_immediately() {
+        let v = test_verdict();
+        let m = test_matches();
+        let mut app = App::new("test idea for tools", &v, &m);
+        app.set_status("hello");
+        assert_eq!(app.status_message(), Some("hello"));
+    }
+
+    #[test]
+    fn status_message_none_by_default() {
+        let v = test_verdict();
+        let m = test_matches();
+        let app = App::new("test idea for tools", &v, &m);
+        assert_eq!(app.status_message(), None);
+    }
+
+    #[test]
+    fn yank_url_sets_status_message() {
+        let v = test_verdict();
+        let m = test_matches();
+        let mut app = App::new("test idea for tools", &v, &m);
+        app.yank_url();
+        let msg = app.status_message().unwrap();
+        assert!(
+            msg == "Copied to clipboard" || msg == "Clipboard unavailable",
+            "yank must set a status message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn yank_url_noop_when_no_selection() {
+        let v = test_verdict();
+        let m: Vec<Match> = vec![];
+        let mut app = App::new("test idea for tools", &v, &m);
+        app.yank_url();
+        assert_eq!(app.status_message(), None);
     }
 }

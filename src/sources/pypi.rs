@@ -12,8 +12,6 @@ use crate::model::{Match, Query, Source};
 use crate::{Error, Result};
 
 const DEFAULT_BASE_URL: &str = "https://pypi.org";
-const USER_AGENT: &str = concat!("patent/", env!("CARGO_PKG_VERSION"), " (prior-art search)");
-
 /// Searches PyPI (scrape-based; see module note).
 #[derive(Debug, Clone)]
 pub struct PyPI {
@@ -46,7 +44,6 @@ impl SourceAdapter for PyPI {
         let html = self
             .client
             .get(&url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
             .query(&[("q", q.as_str())])
             .send()
             .await?

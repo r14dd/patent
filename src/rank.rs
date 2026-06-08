@@ -1,7 +1,7 @@
 //! Semantic ranking.
 //!
 //! Embeds the idea and each match description with `fastembed`, computes cosine
-//! similarity, dedups, sorts, and keeps the top N.
+//! similarity, sorts, and keeps the top N.
 
 use crate::model::{Match, Query};
 
@@ -36,8 +36,8 @@ fn score_sort_limit(
             .partial_cmp(&a.similarity)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    matches.truncate(limit);
     matches.retain(|m| m.similarity >= 0.0);
+    matches.truncate(limit);
     matches
 }
 

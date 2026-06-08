@@ -261,6 +261,8 @@ async fn main() -> anyhow::Result<()> {
     // ── Phase 4: output ─────────────────────────────────────────────────
     // The TUI needs a real terminal; when stdout is piped or redirected, fall
     // back to JSON rather than panicking on terminal initialization.
+    let exit_code = verdict.level.exit_code();
+
     let want_json = args.json || !std::io::stdout().is_terminal();
     if want_json {
         if !args.json {
@@ -278,7 +280,7 @@ async fn main() -> anyhow::Result<()> {
         tui::run(&idea, &verdict, &ranked)?;
     }
 
-    Ok(())
+    std::process::exit(exit_code)
 }
 
 #[cfg(test)]

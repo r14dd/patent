@@ -9,13 +9,6 @@ use crate::Result;
 /// Default crates.io host. Overridable in tests via [`CratesIo::with_base_url`].
 const DEFAULT_BASE_URL: &str = "https://crates.io";
 
-/// User-Agent sent on every request — crates.io rejects requests without one.
-const USER_AGENT: &str = concat!(
-    "patent/",
-    env!("CARGO_PKG_VERSION"),
-    " (prior-art search; https://github.com/r14dd/patent)"
-);
-
 /// Searches the crates.io registry.
 #[derive(Debug, Clone)]
 pub struct CratesIo {
@@ -65,7 +58,6 @@ impl SourceAdapter for CratesIo {
         let response = self
             .client
             .get(&url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
             .query(&[("q", q.as_str()), ("per_page", "20")])
             .send()
             .await?

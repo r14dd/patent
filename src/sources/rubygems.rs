@@ -57,8 +57,8 @@ impl SourceAdapter for RubyGems {
 
         Ok(gems
             .into_iter()
-            .take(20)
             .filter(|g| g.info.as_ref().is_some_and(|i| !i.is_empty()))
+            .take(20)
             .map(|g| Match {
                 url: g
                     .project_uri
