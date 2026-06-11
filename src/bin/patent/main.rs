@@ -1,6 +1,7 @@
 //! `patent` binary — thin CLI/TUI shell over the `patent` library.
 
 mod cli;
+mod config;
 mod tui;
 
 use clap::{CommandFactory, Parser};
@@ -110,19 +111,35 @@ async fn main() -> anyhow::Result<()> {
         .expect("idea is required when not using --completions");
     validate_idea(&idea)?;
 
-    // Validate backend flags up front so the contract doesn't depend on the
-    // query's similarity score (the verdict step is skipped on --fast and on
-    // low-relevance results).
-    if !args.fast && args.api_base.is_some() && args.model.is_none() {
+    // Load config file; missing file is fine, malformed file is a hard error.
+    let cfg = config::load()?;
+
+    // Resolve each setting: CLI flag / env var (via clap) > config file > built-in default.
+    // OPENAI_API_KEY is a well-known fallback for api_key only (checked last).
+    let api_base = args.api_base.or(cfg.api_base);
+    // Track whether the key came from an explicit source (not the global OPENAI_API_KEY
+    // fallback) so we can warn accurately when api_base is absent.
+    let api_key_explicit = args.api_key.is_some() || cfg.api_key.is_some();
+    let api_key = args
+        .api_key
+        .or(cfg.api_key)
+        .or_else(|| std::env::var("OPENAI_API_KEY").ok());
+    let model = args.model.or(cfg.model);
+
+    // Validate resolved backend settings up front so the contract doesn't
+    // depend on the query's similarity score.
+    if !args.fast && api_base.is_some() && model.is_none() {
         anyhow::bail!(
-            "--api-base requires a model; pass --model <NAME> (e.g. --model gpt-4o-mini)."
+            "api_base is set but no model was specified. \
+             Pass --model <NAME>, set PATENT_MODEL, or add `model = \"...\"` to \
+             ~/.config/patent/config.toml."
         );
     }
-    if args.api_key.is_some() && args.api_base.is_none() {
-        eprintln!("warning: --api-key has no effect without --api-base; using local Ollama.");
+    if api_key_explicit && api_base.is_none() {
+        eprintln!("warning: api_key has no effect without api_base; using local Ollama.");
     }
-    if args.fast && args.api_base.is_some() {
-        eprintln!("warning: --fast skips the LLM, so --api-base has no effect.");
+    if args.fast && api_base.is_some() {
+        eprintln!("warning: --fast skips the LLM, so api_base has no effect.");
     }
 
     let query = build_query(&idea);
@@ -211,25 +228,18 @@ async fn main() -> anyhow::Result<()> {
              try rephrasing with specific technical terms.",
         )
     } else {
-        // --api-base without --model already errored up front, so None here means
+        // api_base without model already errored up front, so None here means
         // the local Ollama default.
-        let model = args
-            .model
+        let model = model
             .clone()
             .unwrap_or_else(|| patent::ollama::DEFAULT_MODEL.to_string());
 
-        let llm: Box<dyn patent::Llm> = match &args.api_base {
-            Some(base) => {
-                let key = args
-                    .api_key
-                    .clone()
-                    .or_else(|| std::env::var("OPENAI_API_KEY").ok());
-                Box::new(patent::openai::OpenAi::new(
-                    base.clone(),
-                    model.clone(),
-                    key,
-                ))
-            }
+        let llm: Box<dyn patent::Llm> = match &api_base {
+            Some(base) => Box::new(patent::openai::OpenAi::new(
+                base.clone(),
+                model.clone(),
+                api_key.clone(),
+            )),
             None => Box::new(patent::ollama::Ollama::new(
                 patent::ollama::DEFAULT_ENDPOINT,
                 model.clone(),
