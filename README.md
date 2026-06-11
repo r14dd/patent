@@ -92,6 +92,10 @@ patent --completions zsh  >> ~/.zshrc     # Zsh
 patent --completions fish > ~/.config/fish/completions/patent.fish
 ```
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow. The [`good first issue`](https://github.com/r14dd/patent/labels/good%20first%20issue) and [`help wanted`](https://github.com/r14dd/patent/labels/help%20wanted) labels are a good starting point.
+
 ## Development
 
 ```bash
