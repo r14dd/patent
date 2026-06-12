@@ -5,7 +5,9 @@
 
 // M1: crates.io parsing via wiremock.
 // M2: each remaining source + dedup.
-
+use reqwest::Client;
+use patent::model::Source;
+use patent::sources::homebrew::Homebrew;
 use patent::model::{Match, Query, Source as SourceId};
 use patent::sources::crates_io::CratesIo;
 use patent::sources::docker_hub::DockerHub;
@@ -1280,4 +1282,110 @@ async fn vscode_server_error_is_propagated() {
 
     let src = VsCodeMarketplace::with_base_url(reqwest::Client::new(), server.uri());
     assert!(src.search(&query()).await.is_err());
+}
+
+//homebrew
+#[tokio::test]
+async fn test_homebrew_happy_path() {
+    let mock_server = MockServer::start().await;
+
+    // 1. Mock the formula API
+    Mock::given(method("GET"))
+        .and(path("/api/formula.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {
+                "name": "ripgrep",
+                "desc": "Search tool like grep and The Silver Searcher",
+                "homepage": "https://github.com/BurntSushi/ripgrep"
+            }
+        ])))
+        .mount(&mock_server)
+        .await;
+
+    // 2. Mock the cask API
+    Mock::given(method("GET"))
+        .and(path("/api/cask.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {
+                "token": "google-chrome",
+                "desc": "Web browser",
+                "homepage": "https://www.google.com/chrome/"
+            }
+        ])))
+        .mount(&mock_server)
+        .await;
+
+    let client = Client::new();
+    let source = Homebrew::with_base_url(client, mock_server.uri());
+
+    // Create a mock query
+    let query = Query {
+        idea: "A fast search tool".into(),
+        keywords: vec!["ripgrep".into()],
+    };
+
+    let results = source.search(&query).await.expect("Search should succeed");
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "ripgrep");
+    assert!(matches!(results[0].source, Source::Homebrew));
+}
+
+#[tokio::test]
+async fn test_homebrew_empty_results() {
+    let mock_server = MockServer::start().await;
+
+    // Mock both APIs returning empty arrays
+    Mock::given(method("GET"))
+        .and(path("/api/formula.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/cask.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+        .mount(&mock_server)
+        .await;
+
+    let client = Client::new();
+    let source = Homebrew::with_base_url(client, mock_server.uri());
+
+    let query = Query {
+        idea: "Something completely obscure".into(),
+        keywords: vec!["doesnotexist123".into()],
+    };
+
+    let results = source.search(&query).await.expect("Search should succeed but be empty");
+    assert!(results.is_empty());
+}
+
+#[tokio::test]
+async fn test_homebrew_server_error() {
+    let mock_server = MockServer::start().await;
+
+    // Mock the formula API throwing a 500 Internal Server Error
+    Mock::given(method("GET"))
+        .and(path("/api/formula.json"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&mock_server)
+        .await;
+
+    // We don't need to mock cask.json here, because the adapter should 
+    // short-circuit and return an Err when the first formula request fails.
+
+    let client = Client::new();
+    let source = Homebrew::with_base_url(client, mock_server.uri());
+
+    let query = Query {
+        idea: "Testing server crash".into(),
+        keywords: vec!["test".into()],
+    };
+
+    let result = source.search(&query).await;
+    
+    assert!(
+        result.is_err(),
+        "Expected the adapter to return an Error when hitting a 500 status code"
+    );
 }

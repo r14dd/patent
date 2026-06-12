@@ -13,6 +13,7 @@ use futures::future::join_all;
 use crate::model::{Match, Query};
 use crate::Result;
 
+pub mod homebrew;
 pub mod crates_io;
 pub mod docker_hub;
 pub mod github;
@@ -84,6 +85,9 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     if idea_contains(idea, &["rust", "crate", "cargo"]) {
         s.insert(S::CratesIo);
     }
+    if idea_contains(idea, &["brew", "homebrew", "macos", "cask"]) {
+        s.insert(S::Homebrew);
+    }
     if idea_contains(
         idea,
         &["npm", "node", "javascript", "typescript", "deno", "bun"],
@@ -116,6 +120,15 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     }
 
     // ── Domain inference (no language named, but the problem implies one) ─
+    if idea_contains(idea, 
+                       &[
+                        "cli", 
+                        "command line", 
+                        "terminal tool", 
+                        "shell"]) 
+                        {
+        add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI, S::Homebrew]);
+    }
     if idea_contains(
         idea,
         &[
@@ -245,6 +258,7 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
         S::DockerHub => Box::new(docker_hub::DockerHub::new(client)),
         S::VsCodeMarketplace => Box::new(vscode::VsCodeMarketplace::new(client)),
         S::NuGet => Box::new(nuget::NuGet::new(client)),
+        S::Homebrew => Box::new(homebrew::Homebrew::new(client)),
     }
 }
 
@@ -373,6 +387,7 @@ mod tests {
             "a c# dotnet unity game",
             "a docker container for kubernetes",
             "a vscode extension for editors",
+            "a macos homebrew tool",
             "anything at all with no signal",
         ];
         let mut seen: HashSet<S> = HashSet::new();
@@ -391,6 +406,7 @@ mod tests {
             S::DockerHub,
             S::VsCodeMarketplace,
             S::NuGet,
+            S::Homebrew,
         ] {
             assert!(
                 seen.contains(&variant),
