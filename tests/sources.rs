@@ -6,7 +6,7 @@
 // M1: crates.io parsing via wiremock.
 // M2: each remaining source + dedup.
 use reqwest::Client;
-use patent::model::Source;
+//use patent::model::Source;
 use patent::sources::homebrew::Homebrew;
 use patent::model::{Match, Query, Source as SourceId};
 use patent::sources::crates_io::CratesIo;
@@ -1288,8 +1288,6 @@ async fn vscode_server_error_is_propagated() {
 #[tokio::test]
 async fn test_homebrew_happy_path() {
     let mock_server = MockServer::start().await;
-
-    // 1. Mock the formula API
     Mock::given(method("GET"))
         .and(path("/api/formula.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
@@ -1302,7 +1300,6 @@ async fn test_homebrew_happy_path() {
         .mount(&mock_server)
         .await;
 
-    // 2. Mock the cask API
     Mock::given(method("GET"))
         .and(path("/api/cask.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
@@ -1328,7 +1325,7 @@ async fn test_homebrew_happy_path() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "ripgrep");
-    assert!(matches!(results[0].source, Source::Homebrew));
+    assert!(matches!(results[0].source, SourceId::Homebrew));
 }
 
 #[tokio::test]

@@ -34,10 +34,17 @@ impl Homebrew {
     }
 }
 
-// Note: The Homebrew API returns a flat JSON array of these objects, 
-// rather than a nested "items" array like GitHub.
-#[derive(Debug, Deserialize)]
+// 1. We split into three structs to safely handle the different JSON shapes
+
+#[derive(Debug)]
 struct BrewPackage {
+    name: String,
+    desc: Option<String>,
+    homepage: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BrewFormula {
     name: String,
     #[serde(default)]
     desc: Option<String>,
@@ -45,6 +52,14 @@ struct BrewPackage {
     homepage: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct BrewCask {
+    token: String, // Casks use 'token' for their unique ID
+    #[serde(default)]
+    desc: Option<String>,
+    #[serde(default)]
+    homepage: Option<String>,
+}
 
 #[async_trait::async_trait]
 impl SourceAdapter for Homebrew {
@@ -53,37 +68,45 @@ impl SourceAdapter for Homebrew {
     }
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
-        let url = format!("{}/api/formula.json", self.base_url);
-        
-        let search_term = query.keywords.join(" ").to_lowercase();
+        let formula_url = format!("{}/api/formula.json", self.base_url);
+        let cask_url = format!("{}/api/cask.json", self.base_url);
 
-        let request = self
-            .client
-            .get(&url)
-            .header(reqwest::header::ACCEPT, "application/json");
+        // 1. Fetch and parse Formulae safely
+        let formula_res = self.client.get(&formula_url).header(reqwest::header::ACCEPT, "application/json").send().await?;
+        let formulae: Vec<BrewFormula> = formula_res.error_for_status()?.json().await?;
 
-        let response = request.send().await?;
-        let status = response.status();
+        // 2. Fetch and parse Casks safely
+        let cask_res = self.client.get(&cask_url).header(reqwest::header::ACCEPT, "application/json").send().await?;
+        let casks: Vec<BrewCask> = cask_res.error_for_status()?.json().await?;
 
-        if !status.is_success() {
-            return Err(crate::Error::Parse(
-                format!("Homebrew API returned {} — service might be down", status).into(),
-            ));
-        }
+        // 3. Unify them into a single list of BrewPackages
+        let mut packages: Vec<BrewPackage> = formulae.into_iter().map(|f| BrewPackage {
+            name: f.name,
+            desc: f.desc,
+            homepage: f.homepage,
+        }).collect();
 
-        let formulae: Vec<BrewPackage> = response.json().await?;
+        packages.extend(casks.into_iter().map(|c| BrewPackage {
+            name: c.token, // Map the cask token to the standard name field
+            desc: c.desc,
+            homepage: c.homepage,
+        }));
 
-        Ok(formulae
+        let keywords_lower: Vec<String> = query.keywords.iter().map(|k| k.to_lowercase()).collect();
+
+        // 4. Filter and Map Results
+        Ok(packages
             .into_iter()
             .filter(|pkg| {
-                pkg.name.to_lowercase().contains(&search_term)
-                    || pkg.desc
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&search_term)
+                let name_lower = pkg.name.to_lowercase();
+                let desc_lower = pkg.desc.as_deref().unwrap_or("").to_lowercase();
+                
+                // Matches ONLY if every single keyword is found in either the name or description
+                keywords_lower.iter().all(|kw| {
+                    name_lower.contains(kw) || desc_lower.contains(kw)
+                })
             })
-            .take(20) // Cap at 20 to match GitHub's per_page limit and avoid UI bloat
+            .take(20)
             .map(|pkg| Match {
                 name: pkg.name,
                 source: Source::Homebrew,
