@@ -146,6 +146,14 @@ pub fn rank(query: &Query, matches: Vec<Match>, limit: usize) -> crate::Result<V
 mod tests {
     use super::*;
     use crate::model::Source;
+    use std::sync::OnceLock;
+
+    /// Shared ranker so the ~80 MB model downloads only once across all tests
+    /// (parallel test threads race on the download otherwise).
+    fn shared_ranker() -> &'static std::sync::Mutex<Ranker> {
+        static RANKER: OnceLock<std::sync::Mutex<Ranker>> = OnceLock::new();
+        RANKER.get_or_init(|| std::sync::Mutex::new(Ranker::new().unwrap()))
+    }
 
     #[test]
     fn cosine_identical_is_one() {
@@ -248,9 +256,18 @@ mod tests {
         }
     }
 
+    fn rank_via_shared(query: &Query, matches: Vec<Match>, limit: usize) -> Vec<Match> {
+        if matches.is_empty() {
+            return vec![];
+        }
+        let mut ranker = shared_ranker().lock().unwrap();
+        let query_emb = ranker.embed_query(&query.idea).unwrap();
+        ranker.rank_with(&query_emb, matches, limit).unwrap()
+    }
+
     #[test]
     fn rank_empty_matches_returns_empty() {
-        let result = rank(&test_query(), vec![], 10).unwrap();
+        let result = rank_via_shared(&test_query(), vec![], 10);
         assert!(result.is_empty());
     }
 
@@ -260,7 +277,7 @@ mod tests {
             "tokio",
             "An event-driven async runtime for Rust",
         )];
-        let result = rank(&test_query(), matches, 10).unwrap();
+        let result = rank_via_shared(&test_query(), matches, 10);
         assert!(
             result[0].similarity > 0.0,
             "related content must have positive similarity"
@@ -276,7 +293,7 @@ mod tests {
                 "An event-driven non-blocking I/O platform for async Rust",
             ),
         ];
-        let result = rank(&test_query(), matches, 10).unwrap();
+        let result = rank_via_shared(&test_query(), matches, 10);
         assert_eq!(result[0].name, "tokio");
     }
 
@@ -288,7 +305,7 @@ mod tests {
             test_match("c", "async runtime gamma"),
             test_match("d", "async runtime delta"),
         ];
-        let result = rank(&test_query(), matches, 2).unwrap();
+        let result = rank_via_shared(&test_query(), matches, 2);
         assert_eq!(result.len(), 2);
     }
 
@@ -299,7 +316,7 @@ mod tests {
             test_match("smol", "A small async runtime"),
             test_match("tokio", "An async runtime for Rust applications"),
         ];
-        let result = rank(&test_query(), matches, 10).unwrap();
+        let result = rank_via_shared(&test_query(), matches, 10);
         for pair in result.windows(2) {
             assert!(
                 pair[0].similarity >= pair[1].similarity,

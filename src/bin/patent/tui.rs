@@ -24,6 +24,18 @@ use crossterm::{
     execute,
 };
 
+use std::time::Duration;
+
+/// Top-level TUI phase: search input, loading, or viewing results.
+enum Phase {
+    /// User is typing a query.
+    Search { input: String, cursor: usize },
+    /// Search pipeline is running.
+    Searching { idea: String, tick: usize },
+    /// Viewing results (delegates to App).
+    Results,
+}
+
 const ACCENT: Color = Color::Cyan;
 const MUTED: Color = Color::DarkGray;
 
@@ -106,6 +118,117 @@ fn wrapped_rows(text: &str, width: u16) -> u16 {
         first = false;
     }
     rows.max(1)
+}
+
+const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+fn draw_search(frame: &mut Frame, input: &str, cursor: usize) {
+    let area = frame.area();
+    let [_, center, _] = Layout::vertical([
+        Constraint::Percentage(35),
+        Constraint::Min(7),
+        Constraint::Percentage(35),
+    ])
+    .areas(area);
+    let [_, box_area, _] = Layout::horizontal([
+        Constraint::Percentage(15),
+        Constraint::Min(30),
+        Constraint::Percentage(15),
+    ])
+    .areas(center);
+
+    let [title_area, _, input_area, _, hint_area] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(box_area);
+
+    let title = Paragraph::new(Line::from(vec![
+        Span::styled(
+            "patent",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "  prior-art search for code ideas",
+            Style::default().add_modifier(Modifier::DIM),
+        ),
+    ]))
+    .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(title, title_area);
+
+    let display_input = if input.is_empty() {
+        Line::from(Span::styled(
+            "describe your dev-tool idea...",
+            Style::default().fg(MUTED),
+        ))
+    } else {
+        Line::from(Span::raw(input))
+    };
+    let input_widget = Paragraph::new(display_input).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(ACCENT)),
+    );
+    frame.render_widget(input_widget, input_area);
+
+    // Place cursor inside the input box.
+    let cursor_x = input_area.x + 1 + (cursor as u16).min(input_area.width.saturating_sub(2));
+    let cursor_y = input_area.y + 1;
+    frame.set_cursor_position((cursor_x, cursor_y));
+
+    let hint = Paragraph::new(Line::from(vec![
+        key_span("Enter"),
+        label_span(" search  "),
+        key_span("Esc"),
+        label_span(" quit"),
+    ]))
+    .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(hint, hint_area);
+}
+
+fn draw_searching(frame: &mut Frame, idea: &str, tick: usize) {
+    let area = frame.area();
+    let [_, center, _] = Layout::vertical([
+        Constraint::Percentage(35),
+        Constraint::Min(5),
+        Constraint::Percentage(35),
+    ])
+    .areas(area);
+    let [_, box_area, _] = Layout::horizontal([
+        Constraint::Percentage(15),
+        Constraint::Min(30),
+        Constraint::Percentage(15),
+    ])
+    .areas(center);
+
+    let spinner = SPINNER[tick % SPINNER.len()];
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(
+                format!(" {spinner} "),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Searching...", Style::default().fg(Color::White)),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::raw("   "),
+            Span::styled(idea, Style::default().fg(ACCENT)),
+        ]),
+        Line::raw(""),
+        Line::from(vec![Span::raw("   "), label_span("Esc to cancel")]),
+    ];
+    let panel = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(ACCENT)),
+    );
+    frame.render_widget(panel, box_area);
 }
 
 fn draw(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Rect {
@@ -384,6 +507,8 @@ fn draw(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Rect {
                 label_span(" copy  "),
                 key_span("s"),
                 label_span(" sort  "),
+                key_span("n"),
+                label_span(" new search  "),
                 key_span("?"),
                 label_span(" help  "),
                 key_span("q"),
@@ -608,6 +733,7 @@ fn draw_help(frame: &mut Frame) {
         help_row("s", "Cycle sort (similarity/popularity/name)"),
         help_row("/", "Filter matches"),
         help_row("m", "Show more / less"),
+        help_row("n", "New search"),
         help_row("?", "Toggle this help"),
         help_row("q", "Quit"),
         Line::raw(""),
@@ -681,7 +807,12 @@ fn label_span(text: &str) -> Span<'_> {
     Span::styled(text, Style::default().add_modifier(Modifier::DIM))
 }
 
-fn handle_event(app: &mut App, table_state: &TableState, table_area: Rect) -> std::io::Result<()> {
+fn handle_result_event(
+    app: &mut App,
+    phase: &mut Phase,
+    table_state: &TableState,
+    table_area: Rect,
+) -> std::io::Result<()> {
     use crossterm::event::{
         self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
     };
@@ -700,6 +831,12 @@ fn handle_event(app: &mut App, table_state: &TableState, table_area: Rect) -> st
             match app.mode() {
                 Mode::Normal => match key.code {
                     KeyCode::Char('q') => app.quit(),
+                    KeyCode::Char('n') => {
+                        *phase = Phase::Search {
+                            input: String::new(),
+                            cursor: 0,
+                        };
+                    }
                     KeyCode::Down | KeyCode::Char('j') => app.scroll_down(),
                     KeyCode::Up | KeyCode::Char('k') => app.scroll_up(),
                     KeyCode::Home | KeyCode::Char('g') => app.scroll_to_top(),
@@ -734,14 +871,10 @@ fn handle_event(app: &mut App, table_state: &TableState, table_area: Rect) -> st
                 },
             }
         }
-        // Mouse only steers the matches list, so it's only live in Normal mode.
         Event::Mouse(mouse) if app.mode() == Mode::Normal => match mouse.kind {
             MouseEventKind::ScrollDown => app.scroll_down(),
             MouseEventKind::ScrollUp => app.scroll_up(),
             MouseEventKind::Down(MouseButton::Left) => {
-                // Data rows start 3 lines into the table block (top border +
-                // header row + header bottom-margin), shifted by however far the
-                // table has scrolled (the persisted TableState's offset).
                 let first_row = table_area.y.saturating_add(3);
                 let last_row = table_area
                     .y
@@ -776,7 +909,36 @@ fn open_selected(app: &App) {
     }
 }
 
-pub fn run(idea: &str, verdict: &Verdict, matches: &[Match]) -> anyhow::Result<()> {
+/// Launch the TUI with pre-computed results (CLI provided an idea).
+pub fn run_with_results(idea: &str, verdict: Verdict, matches: Vec<Match>) -> anyhow::Result<()> {
+    let app = App::new(idea, verdict, matches);
+    run_tui(app, Phase::Results)
+}
+
+/// Launch the TUI in interactive search mode (no idea on CLI).
+pub fn run_interactive() -> anyhow::Result<()> {
+    let app = App::new(
+        "",
+        Verdict {
+            level: Saturation::Open,
+            headline: String::new(),
+            gaps: vec![],
+            sources_checked: vec![],
+            sources_failed: vec![],
+            caveat: String::new(),
+        },
+        vec![],
+    );
+    run_tui(
+        app,
+        Phase::Search {
+            input: String::new(),
+            cursor: 0,
+        },
+    )
+}
+
+fn run_tui(app: App, initial_phase: Phase) -> anyhow::Result<()> {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = execute!(std::io::stdout(), DisableMouseCapture);
@@ -786,31 +948,212 @@ pub fn run(idea: &str, verdict: &Verdict, matches: &[Match]) -> anyhow::Result<(
 
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableMouseCapture);
-    let result = run_loop(&mut terminal, idea, verdict, matches);
+
+    let rt = tokio::runtime::Handle::current();
+    let result = rt.block_on(run_loop(&mut terminal, app, initial_phase));
+
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
 
-fn run_loop(
+/// Result of the search pipeline, sent back from the worker task.
+struct SearchResult {
+    idea: String,
+    verdict: Verdict,
+    matches: Vec<Match>,
+}
+
+async fn run_loop(
     terminal: &mut DefaultTerminal,
-    idea: &str,
-    verdict: &Verdict,
-    matches: &[Match],
+    mut app: App,
+    initial_phase: Phase,
 ) -> anyhow::Result<()> {
-    let mut app = App::new(idea, verdict, matches);
     let mut table_state = TableState::default();
     let mut table_area = Rect::default();
+    let mut phase = initial_phase;
+    let mut search_rx: Option<tokio::sync::oneshot::Receiver<anyhow::Result<SearchResult>>> = None;
 
     loop {
-        terminal.draw(|frame| {
-            table_area = draw(frame, &app, &mut table_state);
+        terminal.draw(|frame| match &phase {
+            Phase::Search { input, cursor } => draw_search(frame, input, *cursor),
+            Phase::Searching { idea, tick } => draw_searching(frame, idea, *tick),
+            Phase::Results => {
+                table_area = draw(frame, &app, &mut table_state);
+            }
         })?;
-        handle_event(&mut app, &table_state, table_area)?;
+
+        // In Searching phase, poll for results and tick the spinner.
+        if let Phase::Searching { tick, idea } = &mut phase {
+            if let Some(rx) = &mut search_rx {
+                match rx.try_recv() {
+                    Ok(Ok(result)) => {
+                        app.load_results(result.idea, result.verdict, result.matches);
+                        table_state = TableState::default();
+                        phase = Phase::Results;
+                        search_rx = None;
+                        continue;
+                    }
+                    Ok(Err(e)) => {
+                        app.load_results(
+                            idea.clone(),
+                            Verdict {
+                                level: Saturation::Open,
+                                headline: format!("Search failed: {e}"),
+                                gaps: vec![],
+                                sources_checked: vec![],
+                                sources_failed: vec![],
+                                caveat: patent::verdict::CAVEAT.to_string(),
+                            },
+                            vec![],
+                        );
+                        table_state = TableState::default();
+                        phase = Phase::Results;
+                        search_rx = None;
+                        continue;
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                        phase = Phase::Search {
+                            input: idea.clone(),
+                            cursor: idea.len(),
+                        };
+                        search_rx = None;
+                        continue;
+                    }
+                }
+            }
+            *tick = tick.wrapping_add(1);
+        }
+
+        // Non-blocking event poll.
+        if !crossterm::event::poll(Duration::from_millis(80))? {
+            continue;
+        }
+
+        match &mut phase {
+            Phase::Search { input, cursor } => {
+                if handle_search_event(input, cursor, &mut app)? {
+                    let idea = input.trim().to_string();
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    search_rx = Some(rx);
+                    phase = Phase::Searching {
+                        idea: idea.clone(),
+                        tick: 0,
+                    };
+                    tokio::spawn(run_search_pipeline(idea, tx));
+                }
+            }
+            Phase::Searching { idea, .. } => {
+                use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+                if let Event::Key(key) = event::read()? {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+                    if key.code == KeyCode::Esc
+                        || (key.modifiers.contains(KeyModifiers::CONTROL)
+                            && key.code == KeyCode::Char('c'))
+                    {
+                        phase = Phase::Search {
+                            input: idea.clone(),
+                            cursor: idea.len(),
+                        };
+                        search_rx = None;
+                    }
+                }
+            }
+            Phase::Results => {
+                handle_result_event(&mut app, &mut phase, &table_state, table_area)?;
+            }
+        }
+
         if app.should_quit() {
             return Ok(());
         }
     }
+}
+
+/// Returns true when the user submits a search (Enter on non-empty input).
+fn handle_search_event(
+    input: &mut String,
+    cursor: &mut usize,
+    app: &mut App,
+) -> std::io::Result<bool> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+
+    match event::read()? {
+        Event::Key(key) if key.kind == KeyEventKind::Press => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                app.quit();
+                return Ok(false);
+            }
+            match key.code {
+                KeyCode::Enter if !input.trim().is_empty() => return Ok(true),
+                KeyCode::Char(c) => {
+                    input.insert(*cursor, c);
+                    *cursor += c.len_utf8();
+                }
+                KeyCode::Backspace if *cursor > 0 => {
+                    let prev = input[..*cursor].char_indices().last().map_or(0, |(i, _)| i);
+                    input.drain(prev..*cursor);
+                    *cursor = prev;
+                }
+                KeyCode::Left if *cursor > 0 => {
+                    *cursor = input[..*cursor].char_indices().last().map_or(0, |(i, _)| i);
+                }
+                KeyCode::Right if *cursor < input.len() => {
+                    *cursor += input[*cursor..].chars().next().map_or(0, |c| c.len_utf8());
+                }
+                KeyCode::Home => *cursor = 0,
+                KeyCode::End => *cursor = input.len(),
+                KeyCode::Esc => app.quit(),
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+async fn run_search_pipeline(
+    idea: String,
+    tx: tokio::sync::oneshot::Sender<anyhow::Result<SearchResult>>,
+) {
+    let result = execute_pipeline(idea).await;
+    let _ = tx.send(result);
+}
+
+async fn execute_pipeline(idea: String) -> anyhow::Result<SearchResult> {
+    let query = crate::build_query(&idea);
+
+    let idea_for_embed = query.idea.clone();
+    let (search_result, ranker_result) = tokio::join!(
+        patent::sources::search_all(&query),
+        tokio::task::spawn_blocking(move || {
+            let mut ranker = patent::rank::Ranker::new()?;
+            let query_emb = ranker.embed_query(&idea_for_embed)?;
+            Ok::<_, patent::Error>((ranker, query_emb))
+        })
+    );
+
+    let patent::sources::SearchOutcome {
+        matches: raw_matches,
+        reached,
+        failed,
+    } = search_result;
+    let (mut ranker, query_emb) = ranker_result.expect("embedding task panicked")?;
+
+    let ranked = tokio::task::spawn_blocking(move || ranker.rank_with(&query_emb, raw_matches, 30))
+        .await
+        .expect("ranking task panicked")?;
+
+    let verdict = patent::verdict::from_data(&ranked, reached, failed);
+
+    Ok(SearchResult {
+        idea,
+        verdict,
+        matches: ranked,
+    })
 }
 
 #[cfg(test)]
@@ -850,7 +1193,7 @@ mod tests {
             .collect()
     }
 
-    fn rendered(width: u16, height: u16, verdict: &Verdict, matches: &[Match]) -> String {
+    fn rendered(width: u16, height: u16, verdict: Verdict, matches: Vec<Match>) -> String {
         let app = App::new(
             "an interactive cli to manage processes on a port",
             verdict,
@@ -872,13 +1215,11 @@ mod tests {
             .collect()
     }
 
-    /// Render an app that's been driven through `setup` first (e.g. into the
-    /// detail popup), returning the flattened buffer text.
     fn rendered_with(
         width: u16,
         height: u16,
-        verdict: &Verdict,
-        matches: &[Match],
+        verdict: Verdict,
+        matches: Vec<Match>,
         setup: impl FnOnce(&mut App),
     ) -> String {
         let mut app = App::new(
@@ -911,7 +1252,7 @@ mod tests {
         for (w, h) in [(80u16, 24u16), (100, 30), (120, 40), (80, 28)] {
             for gaps in [0usize, 2, 4] {
                 let v = verdict_with(gaps, vec![]);
-                let text = rendered(w, h, &v, &many_matches(40));
+                let text = rendered(w, h, v.clone(), many_matches(40));
                 assert!(
                     text.contains("committing"),
                     "caveat clipped at {w}x{h} with {gaps} gaps"
@@ -923,7 +1264,7 @@ mod tests {
     #[test]
     fn not_reached_sources_are_surfaced() {
         let v = verdict_with(2, vec![Source::PyPI, Source::Go]);
-        let text = rendered(100, 30, &v, &many_matches(5));
+        let text = rendered(100, 30, v, many_matches(5));
         assert!(text.contains("Not reached"), "failed sources must be shown");
         assert!(
             text.contains("committing"),
@@ -936,14 +1277,14 @@ mod tests {
         // Layout/scrollbar must not panic on degenerate terminal sizes.
         let v = verdict_with(3, vec![Source::PyPI]);
         for (w, h) in [(1u16, 1u16), (10, 3), (40, 5), (80, 2)] {
-            let _ = rendered(w, h, &v, &many_matches(50));
+            let _ = rendered(w, h, v.clone(), many_matches(50));
         }
     }
 
     #[test]
     fn table_title_shows_active_sort_key() {
         let v = verdict_with(0, vec![]);
-        let text = rendered(100, 30, &v, &many_matches(5));
+        let text = rendered(100, 30, v, many_matches(5));
         assert!(
             text.contains("sort: similarity"),
             "the matches table should surface the active sort key"
@@ -953,7 +1294,7 @@ mod tests {
     #[test]
     fn detail_popup_shows_full_match_info() {
         let v = verdict_with(1, vec![]);
-        let text = rendered_with(100, 30, &v, &many_matches(5), |app| app.enter_detail());
+        let text = rendered_with(100, 30, v, many_matches(5), |app| app.enter_detail());
         assert!(text.contains("tool-0"), "match name shown in popup");
         assert!(text.contains("https://example.com/0"), "full URL shown");
         assert!(
@@ -966,7 +1307,7 @@ mod tests {
     fn detail_popup_renders_without_panic_at_tiny_sizes() {
         let v = verdict_with(1, vec![]);
         for (w, h) in [(1u16, 1u16), (10, 3), (40, 8)] {
-            let _ = rendered_with(w, h, &v, &many_matches(5), |app| app.enter_detail());
+            let _ = rendered_with(w, h, v.clone(), many_matches(5), |app| app.enter_detail());
         }
     }
 
@@ -982,7 +1323,7 @@ mod tests {
             popularity: Some(100),
             similarity: 0.9,
         };
-        let text = rendered(100, 30, &v, &[m]);
+        let text = rendered(100, 30, v, vec![m]);
         assert!(
             text.contains(long_name),
             "name column should show full 25-char name at 100 wide"
@@ -1018,13 +1359,13 @@ mod tests {
 
         let app_at_0 = App::new(
             "an interactive cli to manage processes on a port",
-            &v,
-            &matches,
+            v.clone(),
+            matches.clone(),
         );
         let mut app_at_5 = App::new(
             "an interactive cli to manage processes on a port",
-            &v,
-            &matches,
+            v,
+            matches,
         );
         for _ in 0..5 {
             app_at_5.scroll_down();
@@ -1090,7 +1431,7 @@ mod tests {
             popularity: None,
             similarity: 0.5,
         };
-        let text = rendered_with(100, 30, &v, &[m], |app| app.enter_detail());
+        let text = rendered_with(100, 30, v, vec![m], |app| app.enter_detail());
         assert!(
             text.contains("no-desc"),
             "name shown with empty description"
@@ -1108,7 +1449,7 @@ mod tests {
             popularity: None,
             similarity: 0.6,
         };
-        let text = rendered_with(100, 30, &v, &[m], |app| app.enter_detail());
+        let text = rendered_with(100, 30, v, vec![m], |app| app.enter_detail());
         assert!(text.contains('—'), "dash shown when popularity is None");
     }
 
@@ -1123,7 +1464,7 @@ mod tests {
             popularity: Some(42),
             similarity: 0.8,
         };
-        let _ = rendered_with(80, 24, &v, &[m], |app| app.enter_detail());
+        let _ = rendered_with(80, 24, v, vec![m], |app| app.enter_detail());
     }
 
     #[test]
@@ -1137,7 +1478,7 @@ mod tests {
             popularity: None,
             similarity: 0.7,
         };
-        let _ = rendered_with(80, 24, &v, &[m], |app| app.enter_detail());
+        let _ = rendered_with(80, 24, v, vec![m], |app| app.enter_detail());
     }
 
     #[test]
@@ -1155,11 +1496,10 @@ mod tests {
             similarity: 0.9,
         };
         // At scroll=0, "lastword" is beyond the viewport.
-        let t0 = rendered_with(100, 30, &v, std::slice::from_ref(&m), |app| {
+        let t0 = rendered_with(100, 30, v.clone(), vec![m.clone()], |app| {
             app.enter_detail()
         });
-        // After scrolling to the end, it should be visible.
-        let t_end = rendered_with(100, 30, &v, std::slice::from_ref(&m), |app| {
+        let t_end = rendered_with(100, 30, v, vec![m], |app| {
             app.enter_detail();
             for _ in 0..50 {
                 app.scroll_detail_down();
@@ -1184,7 +1524,7 @@ mod tests {
             popularity: Some(1),
             similarity: 0.5,
         };
-        let text = rendered_with(100, 30, &v, &[m], |app| {
+        let text = rendered_with(100, 30, v, vec![m], |app| {
             app.enter_detail();
             for _ in 0..1000 {
                 app.scroll_detail_down();
@@ -1214,7 +1554,7 @@ mod tests {
             similarity: 0.9,
         };
         // Scroll to end, then close and reopen — should be back at top (word0 visible).
-        let text = rendered_with(100, 30, &v, &[m], |app| {
+        let text = rendered_with(100, 30, v, vec![m], |app| {
             app.enter_detail();
             for _ in 0..50 {
                 app.scroll_detail_down();
@@ -1229,7 +1569,7 @@ mod tests {
     fn detail_popup_renders_at_all_common_sizes() {
         let v = verdict_with(2, vec![Source::PyPI]);
         for (w, h) in [(80u16, 24u16), (100, 30), (120, 40), (60, 20)] {
-            let _ = rendered_with(w, h, &v, &many_matches(5), |app| app.enter_detail());
+            let _ = rendered_with(w, h, v.clone(), many_matches(5), |app| app.enter_detail());
         }
     }
 
@@ -1237,11 +1577,122 @@ mod tests {
     fn is_safe_url_allows_https_and_http_only() {
         assert!(is_safe_url("https://crates.io/crates/tokio"));
         assert!(is_safe_url("http://example.com/path"));
-        assert!(is_safe_url("HTTPS://example.com")); // uppercase scheme must be accepted
+        assert!(is_safe_url("HTTPS://example.com"));
         assert!(is_safe_url("HTTP://example.com"));
         assert!(!is_safe_url("file:///etc/passwd"));
         assert!(!is_safe_url("javascript:alert(1)"));
         assert!(!is_safe_url(""));
         assert!(!is_safe_url("data:text/html,<script>alert(1)</script>"));
+    }
+
+    // ── search screen rendering ────────────────────────────────────────────
+
+    fn render_search(width: u16, height: u16, input: &str, cursor: usize) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| draw_search(f, input, cursor)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    fn render_searching(width: u16, height: u16, idea: &str, tick: usize) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| draw_searching(f, idea, tick)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn search_screen_shows_placeholder_when_empty() {
+        let text = render_search(80, 24, "", 0);
+        assert!(
+            text.contains("describe your dev-tool idea"),
+            "placeholder shown when input is empty"
+        );
+        assert!(text.contains("patent"), "title shown");
+    }
+
+    #[test]
+    fn search_screen_shows_typed_input() {
+        let input = "cli tool for ports";
+        let text = render_search(80, 24, input, input.len());
+        assert!(text.contains(input), "typed input appears on screen");
+    }
+
+    #[test]
+    fn search_screen_shows_keybinding_hints() {
+        let text = render_search(80, 24, "", 0);
+        assert!(text.contains("Enter"), "Enter hint shown");
+        assert!(text.contains("Esc"), "Esc hint shown");
+    }
+
+    #[test]
+    fn search_screen_does_not_panic_at_tiny_sizes() {
+        for (w, h) in [(1u16, 1u16), (10, 3), (20, 5)] {
+            let _ = render_search(w, h, "some input text", 5);
+        }
+    }
+
+    #[test]
+    fn searching_screen_shows_spinner_and_idea() {
+        let text = render_searching(80, 24, "cli tool for ports", 0);
+        assert!(text.contains("Searching"), "searching label shown");
+        assert!(
+            text.contains("cli tool for ports"),
+            "idea shown during search"
+        );
+    }
+
+    #[test]
+    fn searching_screen_spinner_changes_with_tick() {
+        let t0 = render_searching(80, 24, "idea", 0);
+        let t1 = render_searching(80, 24, "idea", 1);
+        assert_ne!(t0, t1, "spinner should animate between ticks");
+    }
+
+    #[test]
+    fn searching_screen_shows_cancel_hint() {
+        let text = render_searching(80, 24, "idea", 0);
+        assert!(text.contains("Esc"), "cancel hint shown");
+    }
+
+    #[test]
+    fn searching_screen_does_not_panic_at_tiny_sizes() {
+        for (w, h) in [(1u16, 1u16), (10, 3), (20, 5)] {
+            let _ = render_searching(w, h, "idea", 3);
+        }
+    }
+
+    // ── results footer shows new search hint ───────────────────────────────
+
+    #[test]
+    fn results_footer_shows_new_search_key() {
+        let v = verdict_with(0, vec![]);
+        let text = rendered(100, 30, v, many_matches(5));
+        assert!(
+            text.contains("new search"),
+            "footer should show 'n new search' hint"
+        );
+    }
+
+    // ── help overlay shows new search ──────────────────────────────────────
+
+    #[test]
+    fn help_overlay_lists_new_search() {
+        let v = verdict_with(0, vec![]);
+        let text = rendered_with(100, 30, v, many_matches(5), |app| app.toggle_help());
+        assert!(
+            text.contains("New search"),
+            "help overlay should list 'n' → 'New search'"
+        );
     }
 }
