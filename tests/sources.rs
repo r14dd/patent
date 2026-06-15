@@ -5,15 +5,13 @@
 
 // M1: crates.io parsing via wiremock.
 // M2: each remaining source + dedup.
-use reqwest::Client;
-//use patent::model::Source;
-use patent::sources::homebrew::Homebrew;
 use patent::model::{Match, Query, Source as SourceId};
 use patent::sources::crates_io::CratesIo;
 use patent::sources::docker_hub::DockerHub;
 use patent::sources::github::GitHub;
 use patent::sources::go::GoPkgDev;
 use patent::sources::hacker_news::HackerNews;
+use patent::sources::homebrew::Homebrew;
 use patent::sources::maven::Maven;
 use patent::sources::npm::Npm;
 use patent::sources::nuget::NuGet;
@@ -21,6 +19,7 @@ use patent::sources::pypi::PyPI;
 use patent::sources::rubygems::RubyGems;
 use patent::sources::vscode::VsCodeMarketplace;
 use patent::sources::{dedup, search_sources, SearchOutcome, SourceAdapter};
+use reqwest::Client;
 use serde_json::json;
 use wiremock::matchers::{header_exists, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1353,7 +1352,10 @@ async fn test_homebrew_empty_results() {
         keywords: vec!["doesnotexist123".into()],
     };
 
-    let results = source.search(&query).await.expect("Search should succeed but be empty");
+    let results = source
+        .search(&query)
+        .await
+        .expect("Search should succeed but be empty");
     assert!(results.is_empty());
 }
 
@@ -1368,7 +1370,7 @@ async fn test_homebrew_server_error() {
         .mount(&mock_server)
         .await;
 
-    // We don't need to mock cask.json here, because the adapter should 
+    // We don't need to mock cask.json here, because the adapter should
     // short-circuit and return an Err when the first formula request fails.
 
     let client = Client::new();
@@ -1380,7 +1382,7 @@ async fn test_homebrew_server_error() {
     };
 
     let result = source.search(&query).await;
-    
+
     assert!(
         result.is_err(),
         "Expected the adapter to return an Error when hitting a 500 status code"

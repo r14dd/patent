@@ -27,10 +27,7 @@ impl Homebrew {
 
     /// Construct against an arbitrary base URL (used by tests).
     pub fn with_base_url(client: reqwest::Client, base_url: String) -> Self {
-        Self {
-            client,
-            base_url,
-        }
+        Self { client, base_url }
     }
 }
 
@@ -72,19 +69,32 @@ impl SourceAdapter for Homebrew {
         let cask_url = format!("{}/api/cask.json", self.base_url);
 
         // 1. Fetch and parse Formulae safely
-        let formula_res = self.client.get(&formula_url).header(reqwest::header::ACCEPT, "application/json").send().await?;
+        let formula_res = self
+            .client
+            .get(&formula_url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await?;
         let formulae: Vec<BrewFormula> = formula_res.error_for_status()?.json().await?;
 
         // 2. Fetch and parse Casks safely
-        let cask_res = self.client.get(&cask_url).header(reqwest::header::ACCEPT, "application/json").send().await?;
+        let cask_res = self
+            .client
+            .get(&cask_url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await?;
         let casks: Vec<BrewCask> = cask_res.error_for_status()?.json().await?;
 
         // 3. Unify them into a single list of BrewPackages
-        let mut packages: Vec<BrewPackage> = formulae.into_iter().map(|f| BrewPackage {
-            name: f.name,
-            desc: f.desc,
-            homepage: f.homepage,
-        }).collect();
+        let mut packages: Vec<BrewPackage> = formulae
+            .into_iter()
+            .map(|f| BrewPackage {
+                name: f.name,
+                desc: f.desc,
+                homepage: f.homepage,
+            })
+            .collect();
 
         packages.extend(casks.into_iter().map(|c| BrewPackage {
             name: c.token, // Map the cask token to the standard name field
@@ -100,11 +110,11 @@ impl SourceAdapter for Homebrew {
             .filter(|pkg| {
                 let name_lower = pkg.name.to_lowercase();
                 let desc_lower = pkg.desc.as_deref().unwrap_or("").to_lowercase();
-                
+
                 // Matches ONLY if every single keyword is found in either the name or description
-                keywords_lower.iter().all(|kw| {
-                    name_lower.contains(kw) || desc_lower.contains(kw)
-                })
+                keywords_lower
+                    .iter()
+                    .all(|kw| name_lower.contains(kw) || desc_lower.contains(kw))
             })
             .take(20)
             .map(|pkg| Match {

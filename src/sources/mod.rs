@@ -13,12 +13,12 @@ use futures::future::join_all;
 use crate::model::{Match, Query};
 use crate::Result;
 
-pub mod homebrew;
 pub mod crates_io;
 pub mod docker_hub;
 pub mod github;
 pub mod go;
 pub mod hacker_news;
+pub mod homebrew;
 pub mod maven;
 pub mod npm;
 pub mod nuget;
@@ -120,13 +120,7 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     }
 
     // ── Domain inference (no language named, but the problem implies one) ─
-    if idea_contains(idea, 
-                       &[
-                        "cli", 
-                        "command line", 
-                        "terminal tool", 
-                        "shell"]) 
-                        {
+    if idea_contains(idea, &["cli", "command line", "terminal tool", "shell"]) {
         add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI, S::Homebrew]);
     }
     if idea_contains(
