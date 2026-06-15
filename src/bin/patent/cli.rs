@@ -8,7 +8,8 @@ use clap::Parser;
 pub struct Cli {
     /// The dev-tool idea to search for, e.g.
     /// "interactive cli to kill whatever's on a port".
-    #[arg(required_unless_present = "completions")]
+    /// Omit to launch the interactive search TUI.
+    #[arg(required = false)]
     pub idea: Option<String>,
 
     /// Max number of matches to keep after ranking (must be at least 1).

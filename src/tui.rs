@@ -47,10 +47,10 @@ impl SortKey {
     }
 }
 
-pub struct App<'a> {
-    idea: &'a str,
-    verdict: &'a Verdict,
-    matches: &'a [Match],
+pub struct App {
+    idea: String,
+    verdict: Verdict,
+    matches: Vec<Match>,
     cursor: usize,
     filter: String,
     visible: Vec<usize>,
@@ -62,11 +62,11 @@ pub struct App<'a> {
     status: Option<(String, std::time::Instant)>,
 }
 
-impl<'a> App<'a> {
-    pub fn new(idea: &'a str, verdict: &'a Verdict, matches: &'a [Match]) -> Self {
+impl App {
+    pub fn new(idea: impl Into<String>, verdict: Verdict, matches: Vec<Match>) -> Self {
         let visible = (0..matches.len()).collect();
         let mut app = Self {
-            idea,
+            idea: idea.into(),
             verdict,
             matches,
             cursor: 0,
@@ -83,12 +83,27 @@ impl<'a> App<'a> {
         app
     }
 
+    pub fn load_results(&mut self, idea: String, verdict: Verdict, matches: Vec<Match>) {
+        self.idea = idea;
+        self.verdict = verdict;
+        self.matches = matches;
+        self.cursor = 0;
+        self.filter.clear();
+        self.expanded = false;
+        self.sort = SortKey::Similarity;
+        self.detail_scroll = 0;
+        self.status = None;
+        self.visible = (0..self.matches.len()).collect();
+        self.apply_sort();
+        self.mode = Mode::Normal;
+    }
+
     pub fn idea(&self) -> &str {
-        self.idea
+        &self.idea
     }
 
     pub fn verdict(&self) -> &Verdict {
-        self.verdict
+        &self.verdict
     }
 
     pub fn mode(&self) -> Mode {
@@ -113,6 +128,10 @@ impl<'a> App<'a> {
 
     pub fn quit(&mut self) {
         self.quit = true;
+    }
+
+    pub fn matches(&self) -> &[Match] {
+        &self.matches
     }
 
     pub fn visible_matches(&self) -> Vec<&Match> {
@@ -322,7 +341,7 @@ impl<'a> App<'a> {
     /// Order `visible` by the current [`SortKey`]. Stable, so equal keys keep
     /// their prior (similarity-ranked) order.
     fn apply_sort(&mut self) {
-        let matches = self.matches;
+        let matches = &self.matches;
         match self.sort {
             SortKey::Similarity => self.visible.sort_by(|&a, &b| {
                 matches[b]
@@ -384,7 +403,7 @@ mod tests {
     fn set_status_is_visible_immediately() {
         let v = test_verdict();
         let m = test_matches();
-        let mut app = App::new("test idea for tools", &v, &m);
+        let mut app = App::new("test idea for tools", v, m);
         app.set_status("hello");
         assert_eq!(app.status_message(), Some("hello"));
     }
@@ -393,7 +412,7 @@ mod tests {
     fn status_message_none_by_default() {
         let v = test_verdict();
         let m = test_matches();
-        let app = App::new("test idea for tools", &v, &m);
+        let app = App::new("test idea for tools", v, m);
         assert_eq!(app.status_message(), None);
     }
 
@@ -401,7 +420,7 @@ mod tests {
     fn yank_url_sets_status_message() {
         let v = test_verdict();
         let m = test_matches();
-        let mut app = App::new("test idea for tools", &v, &m);
+        let mut app = App::new("test idea for tools", v, m);
         app.yank_url();
         let msg = app.status_message().unwrap();
         assert!(
@@ -413,9 +432,96 @@ mod tests {
     #[test]
     fn yank_url_noop_when_no_selection() {
         let v = test_verdict();
-        let m: Vec<Match> = vec![];
-        let mut app = App::new("test idea for tools", &v, &m);
+        let mut app = App::new("test idea for tools", v, vec![]);
         app.yank_url();
         assert_eq!(app.status_message(), None);
+    }
+
+    #[test]
+    fn load_results_resets_cursor_and_filter() {
+        let v = test_verdict();
+        let m = test_matches();
+        let mut app = App::new("first idea about tools", v, m);
+        app.scroll_down();
+        app.enter_filter();
+        app.filter_push('x');
+        app.confirm_filter();
+        app.toggle_expand();
+
+        let v2 = Verdict {
+            level: Saturation::Crowded,
+            headline: "Many matches.".into(),
+            gaps: vec!["try X".into()],
+            sources_checked: vec![Source::Npm, Source::PyPI],
+            sources_failed: vec![],
+            caveat: CAVEAT.to_string(),
+        };
+        let m2 = vec![
+            Match {
+                name: "tool-a".into(),
+                source: Source::Npm,
+                url: "https://npmjs.com/tool-a".into(),
+                description: "tool a".into(),
+                popularity: Some(200),
+                similarity: 0.9,
+            },
+            Match {
+                name: "tool-b".into(),
+                source: Source::PyPI,
+                url: "https://pypi.org/tool-b".into(),
+                description: "tool b".into(),
+                popularity: Some(50),
+                similarity: 0.7,
+            },
+        ];
+        app.load_results("second idea about tools".into(), v2, m2);
+
+        assert_eq!(app.idea(), "second idea about tools");
+        assert_eq!(app.cursor(), 0);
+        assert_eq!(app.filter_text(), "");
+        assert!(!app.is_expanded());
+        assert_eq!(app.mode(), Mode::Normal);
+        assert_eq!(app.displayed_matches().len(), 2);
+        assert_eq!(app.verdict().level, Saturation::Crowded);
+    }
+
+    #[test]
+    fn load_results_on_empty_app() {
+        let v = test_verdict();
+        let mut app = App::new("placeholder idea here", v, vec![]);
+        assert!(app.displayed_matches().is_empty());
+
+        let v2 = Verdict {
+            level: Saturation::Saturated,
+            headline: "Lots found.".into(),
+            gaps: vec![],
+            sources_checked: vec![Source::CratesIo],
+            sources_failed: vec![],
+            caveat: CAVEAT.to_string(),
+        };
+        app.load_results(
+            "new search idea".into(),
+            v2,
+            vec![Match {
+                name: "result".into(),
+                source: Source::CratesIo,
+                url: "https://example.com".into(),
+                description: "desc".into(),
+                popularity: None,
+                similarity: 0.5,
+            }],
+        );
+
+        assert_eq!(app.idea(), "new search idea");
+        assert_eq!(app.displayed_matches().len(), 1);
+    }
+
+    #[test]
+    fn matches_accessor_returns_all() {
+        let v = test_verdict();
+        let m = test_matches();
+        let app = App::new("idea for some tools", v, m);
+        assert_eq!(app.matches().len(), 1);
+        assert_eq!(app.matches()[0].name, "example-tool");
     }
 }

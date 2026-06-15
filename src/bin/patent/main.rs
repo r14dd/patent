@@ -105,9 +105,18 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let idea = args
-        .idea
-        .expect("idea is required when not using --completions");
+    let idea = match args.idea {
+        Some(i) => i,
+        None => {
+            if args.json {
+                anyhow::bail!("--json requires an idea argument.");
+            }
+            if !std::io::stdout().is_terminal() {
+                anyhow::bail!("No idea provided. Usage: patent \"your dev-tool idea here\"");
+            }
+            return tui::run_interactive();
+        }
+    };
     validate_idea(&idea)?;
 
     // Validate backend flags up front so the contract doesn't depend on the
@@ -277,7 +286,7 @@ async fn main() -> anyhow::Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        tui::run(&idea, &verdict, &ranked)?;
+        tui::run_with_results(&idea, verdict, ranked)?;
     }
 
     std::process::exit(exit_code)
