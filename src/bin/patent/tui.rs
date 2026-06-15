@@ -78,6 +78,7 @@ fn source_color(source: Source) -> Color {
         Source::DockerHub => Color::Rgb(30, 144, 255),
         Source::VsCodeMarketplace => Color::Rgb(0, 122, 204),
         Source::NuGet => Color::Rgb(100, 45, 170),
+        Source::Homebrew => Color::Rgb(250, 175, 5),
     }
 }
 

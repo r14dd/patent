@@ -18,6 +18,7 @@ pub mod docker_hub;
 pub mod github;
 pub mod go;
 pub mod hacker_news;
+pub mod homebrew;
 pub mod maven;
 pub mod npm;
 pub mod nuget;
@@ -84,6 +85,9 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     if idea_contains(idea, &["rust", "crate", "cargo"]) {
         s.insert(S::CratesIo);
     }
+    if idea_contains(idea, &["brew", "homebrew", "macos", "cask"]) {
+        s.insert(S::Homebrew);
+    }
     if idea_contains(
         idea,
         &["npm", "node", "javascript", "typescript", "deno", "bun"],
@@ -115,7 +119,6 @@ fn detect_sources(idea: &str) -> HashSet<S> {
         s.insert(S::NuGet);
     }
 
-    // ── Domain inference (no language named, but the problem implies one) ─
     if idea_contains(
         idea,
         &[
@@ -140,7 +143,7 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     // flagship "kill the process on a port" demo would never search npm, where
     // fkill-cli / kill-port actually live.
     if idea_contains(idea, &["cli", "command line", "terminal tool", "shell"]) {
-        add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI]);
+        add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI, S::Homebrew]);
     }
     if idea_contains(
         idea,
@@ -245,6 +248,7 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
         S::DockerHub => Box::new(docker_hub::DockerHub::new(client)),
         S::VsCodeMarketplace => Box::new(vscode::VsCodeMarketplace::new(client)),
         S::NuGet => Box::new(nuget::NuGet::new(client)),
+        S::Homebrew => Box::new(homebrew::Homebrew::new(client)),
     }
 }
 
@@ -373,6 +377,7 @@ mod tests {
             "a c# dotnet unity game",
             "a docker container for kubernetes",
             "a vscode extension for editors",
+            "a macos homebrew tool",
             "anything at all with no signal",
         ];
         let mut seen: HashSet<S> = HashSet::new();
@@ -391,6 +396,7 @@ mod tests {
             S::DockerHub,
             S::VsCodeMarketplace,
             S::NuGet,
+            S::Homebrew,
         ] {
             assert!(
                 seen.contains(&variant),
