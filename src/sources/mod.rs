@@ -118,7 +118,7 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     ) {
         s.insert(S::NuGet);
     }
-    
+
     if idea_contains(
         idea,
         &[
