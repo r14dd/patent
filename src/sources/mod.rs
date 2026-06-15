@@ -118,11 +118,7 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     ) {
         s.insert(S::NuGet);
     }
-
-    // ── Domain inference (no language named, but the problem implies one) ─
-    if idea_contains(idea, &["cli", "command line", "terminal tool", "shell"]) {
-        add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI, S::Homebrew]);
-    }
+    
     if idea_contains(
         idea,
         &[
@@ -147,7 +143,7 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     // flagship "kill the process on a port" demo would never search npm, where
     // fkill-cli / kill-port actually live.
     if idea_contains(idea, &["cli", "command line", "terminal tool", "shell"]) {
-        add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI]);
+        add(&mut s, &[S::CratesIo, S::Go, S::Npm, S::PyPI, S::Homebrew]);
     }
     if idea_contains(
         idea,
