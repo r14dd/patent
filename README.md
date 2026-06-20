@@ -13,7 +13,7 @@
   <a href="https://ratatui.rs/"><img src="https://ratatui.rs/built-with-ratatui/badge.svg" alt="Built With Ratatui"></a>
 </p>
 
-`patent` takes a plain-English dev-tool idea and searches 11 open-source registries — crates.io, npm, PyPI, GitHub, and more. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
+`patent` takes a plain-English dev-tool idea and searches 12 open-source registries — crates.io, npm, PyPI, GitHub, Homebrew, and more. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/r14dd/patent/main/showcase.gif" alt="patent demo" width="720">
@@ -44,6 +44,9 @@ patent "interactive cli to kill whatever's on a port"
 ```
 
 ```bash
+# interactive mode — launches a search prompt inside the TUI
+patent
+
 # no model warmup, no wait
 patent "kubernetes log viewer" --fast
 
@@ -60,11 +63,21 @@ patent "kubernetes log viewer" --api-base https://api.openai.com/v1 --model gpt-
 |---|---|---|
 | `--fast` | no LLM, no wait — verdict derived from similarity scores | — |
 | `--json` | stdout JSON instead of the TUI | — |
-| `--model <MODEL>` | model name for the verdict | `qwen2.5` |
-| `--api-base <URL>` | OpenAI-compatible base URL (must end in `/v1`) | — |
-| `--api-key <KEY>` | API key for `--api-base`; or set `OPENAI_API_KEY` | — |
+| `--model <MODEL>` | model name for the verdict; or `PATENT_MODEL` | `qwen2.5` |
+| `--api-base <URL>` | OpenAI-compatible base URL (must end in `/v1`); or `PATENT_API_BASE` | — |
+| `--api-key <KEY>` | API key for `--api-base`; or `PATENT_API_KEY` / `OPENAI_API_KEY` | — |
 | `--limit <N>` | max matches to keep after ranking | `50` |
 | `--completions <SHELL>` | print shell completions and exit | — |
+
+Settings can also be stored in `~/.config/patent/config.toml`:
+
+```toml
+model    = "gpt-4o-mini"
+api_base = "https://api.openai.com/v1"
+api_key  = "sk-..."
+```
+
+Precedence: CLI flag > environment variable > config file > built-in default.
 
 ## TUI keybindings
 
@@ -79,6 +92,8 @@ patent "kubernetes log viewer" --api-base https://api.openai.com/v1 --model gpt-
 | `m` | Show more / show less |
 | `Enter` | Show match details (description, popularity, URL) |
 | `o` | Open selected URL in browser |
+| `y` | Copy selected URL to clipboard |
+| `n` | New search (interactive mode) |
 | `?` | Help overlay |
 | `q` | Quit |
 
