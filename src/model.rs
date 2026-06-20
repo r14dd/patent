@@ -29,6 +29,7 @@ pub enum Source {
     DockerHub,
     VsCodeMarketplace,
     NuGet,
+    Homebrew,
 }
 
 impl std::fmt::Display for Source {
@@ -45,6 +46,7 @@ impl std::fmt::Display for Source {
             Self::DockerHub => f.write_str("Docker Hub"),
             Self::VsCodeMarketplace => f.write_str("VS Code"),
             Self::NuGet => f.write_str("NuGet"),
+            Self::Homebrew => f.write_str("Homebrew"),
         }
     }
 }
