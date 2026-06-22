@@ -61,7 +61,7 @@ thiserror = "2"
 dirs = "6"
 
 # Config file
-toml = "0.8"
+toml = "1.1"
 
 # Ranking (M3) — semantic embeddings, model downloads on first run
 fastembed = "5"
