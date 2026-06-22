@@ -910,13 +910,13 @@ fn open_selected(app: &App) {
 }
 
 /// Launch the TUI with pre-computed results (CLI provided an idea).
-pub fn run_with_results(idea: &str, verdict: Verdict, matches: Vec<Match>) -> anyhow::Result<()> {
+pub async fn run_with_results(idea: &str, verdict: Verdict, matches: Vec<Match>) -> anyhow::Result<()> {
     let app = App::new(idea, verdict, matches);
-    run_tui(app, Phase::Results)
+    run_tui(app, Phase::Results).await
 }
 
 /// Launch the TUI in interactive search mode (no idea on CLI).
-pub fn run_interactive() -> anyhow::Result<()> {
+pub async fn run_interactive() -> anyhow::Result<()> {
     let app = App::new(
         "",
         Verdict {
@@ -936,9 +936,10 @@ pub fn run_interactive() -> anyhow::Result<()> {
             cursor: 0,
         },
     )
+    .await
 }
 
-fn run_tui(app: App, initial_phase: Phase) -> anyhow::Result<()> {
+async fn run_tui(app: App, initial_phase: Phase) -> anyhow::Result<()> {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = execute!(std::io::stdout(), DisableMouseCapture);
@@ -949,8 +950,14 @@ fn run_tui(app: App, initial_phase: Phase) -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableMouseCapture);
 
-    let rt = tokio::runtime::Handle::current();
-    let result = rt.block_on(run_loop(&mut terminal, app, initial_phase));
+    // let rt = tokio::runtime::Handle::current();
+    // let result = rt.block_on(run_loop(&mut terminal, app, initial_phase));
+    let result = run_loop(
+    &mut terminal,
+    app,
+    initial_phase,
+    )
+    .await;
 
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();

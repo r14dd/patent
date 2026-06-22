@@ -115,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
             if !std::io::stdout().is_terminal() {
                 anyhow::bail!("No idea provided. Usage: patent \"your dev-tool idea here\"");
             }
-            return tui::run_interactive();
+            return tui::run_interactive().await;
         }
     };
     validate_idea(&idea)?;
@@ -296,7 +296,7 @@ async fn main() -> anyhow::Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        tui::run_with_results(&idea, verdict, ranked)?;
+        tui::run_with_results(&idea, verdict, ranked).await?;
     }
 
     std::process::exit(exit_code)
