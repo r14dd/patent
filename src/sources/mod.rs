@@ -316,11 +316,23 @@ pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -
 
 /// Remove duplicate matches by URL, keeping the first occurrence and preserving
 /// order. URL is a match's canonical identity across sources.
+///
+/// Empty/whitespace URLs are never used as a dedup key -- they would collapse
+/// all homepage-less entries (e.g. Homebrew formulae with no homepage) into one
+/// slot, silently dropping every subsequent one. Those fall through to a
+/// (name, source) key instead.
 pub fn dedup(matches: Vec<Match>) -> Vec<Match> {
-    let mut seen = HashSet::new();
+    let mut seen_urls: HashSet<String> = HashSet::new();
+    let mut seen_name_source: HashSet<(String, crate::model::Source)> = HashSet::new();
     matches
         .into_iter()
-        .filter(|m| seen.insert(m.url.clone()))
+        .filter(|m| {
+            if m.url.trim().is_empty() {
+                seen_name_source.insert((m.name.clone(), m.source))
+            } else {
+                seen_urls.insert(m.url.clone())
+            }
+        })
         .collect()
 }
 

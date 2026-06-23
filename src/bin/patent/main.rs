@@ -106,28 +106,13 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let idea = match args.idea {
-        Some(i) => i,
-        None => {
-            if args.json {
-                anyhow::bail!("--json requires an idea argument.");
-            }
-            if !std::io::stdout().is_terminal() {
-                anyhow::bail!("No idea provided. Usage: patent \"your dev-tool idea here\"");
-            }
-            return tui::run_interactive().await;
-        }
-    };
-    validate_idea(&idea)?;
-
-    // Load config file; missing file is fine, malformed file is a hard error.
+    // Load config and resolve backend settings before the no-idea check so the
+    // interactive TUI gets the configured LLM backend when no idea is on the CLI.
     let cfg = config::load()?;
 
-    // Resolve each setting: CLI flag / env var (via clap) > config file > built-in default.
+    // Resolve: CLI flag / env var (via clap) > config file > built-in default.
     // OPENAI_API_KEY is a well-known fallback for api_key only (checked last).
     let api_base = args.api_base.or(cfg.api_base);
-    // Track whether the key came from an explicit source (not the global OPENAI_API_KEY
-    // fallback) so we can warn accurately when api_base is absent.
     let api_key_explicit = args.api_key.is_some() || cfg.api_key.is_some();
     let api_key = args
         .api_key
@@ -135,8 +120,6 @@ async fn main() -> anyhow::Result<()> {
         .or_else(|| std::env::var("OPENAI_API_KEY").ok());
     let model = args.model.or(cfg.model);
 
-    // Validate resolved backend settings up front so the contract doesn't
-    // depend on the query's similarity score.
     if !args.fast && api_base.is_some() && model.is_none() {
         anyhow::bail!(
             "api_base is set but no model was specified. \
@@ -150,6 +133,26 @@ async fn main() -> anyhow::Result<()> {
     if args.fast && api_base.is_some() {
         eprintln!("warning: --fast skips the LLM, so api_base has no effect.");
     }
+
+    let idea = match args.idea {
+        Some(i) => i,
+        None => {
+            if args.json {
+                anyhow::bail!("--json requires an idea argument.");
+            }
+            if !std::io::stdout().is_terminal() {
+                anyhow::bail!("No idea provided. Usage: patent \"your dev-tool idea here\"");
+            }
+            return tui::run_interactive(tui::TuiCfg {
+                api_base,
+                api_key,
+                model,
+                fast: args.fast,
+            })
+            .await;
+        }
+    };
+    validate_idea(&idea)?;
 
     let query = build_query(&idea);
     eprintln!("Searching for prior art: \"{}\"", idea);
@@ -181,7 +184,8 @@ async fn main() -> anyhow::Result<()> {
         reached,
         failed,
     } = search_result;
-    let (mut ranker, query_emb) = ranker_result.expect("embedding task panicked")?;
+    let (mut ranker, query_emb) =
+        ranker_result.map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))??;
 
     eprintln!(
         "   {} matches from {} sources in {:.1}s: {}",
@@ -198,10 +202,14 @@ async fn main() -> anyhow::Result<()> {
     // ── Phase 2: rank (embed descriptions + cosine sort) ────────────────
     let t_rank = std::time::Instant::now();
     let limit = args.limit as usize;
+    // Rank with max(limit, DEFAULT_LIMIT) so floor_level and the verdict prompt
+    // see enough data to make an accurate call even when --limit is small.
+    // The result is truncated to `limit` for display after the verdict is built.
+    let eval_limit = limit.max(patent::rank::DEFAULT_LIMIT);
     let ranked =
-        tokio::task::spawn_blocking(move || ranker.rank_with(&query_emb, raw_matches, limit))
+        tokio::task::spawn_blocking(move || ranker.rank_with(&query_emb, raw_matches, eval_limit))
             .await
-            .expect("ranking task panicked")?;
+            .map_err(|e| anyhow::anyhow!("ranking task panicked: {e}"))??;
     eprintln!(
         "Ranked to top {} in {:.1}s",
         ranked.len(),
@@ -275,6 +283,9 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // Truncate to the user-requested display limit now that the verdict is done.
+    let ranked: Vec<_> = ranked.into_iter().take(limit).collect();
+
     eprintln!("total: {:.1}s", t_start.elapsed().as_secs_f64());
 
     // ── Phase 4: output ─────────────────────────────────────────────────
@@ -296,7 +307,18 @@ async fn main() -> anyhow::Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        tui::run_with_results(&idea, verdict, ranked).await?;
+        tui::run_with_results(
+            &idea,
+            verdict,
+            ranked,
+            tui::TuiCfg {
+                api_base,
+                api_key,
+                model,
+                fast: args.fast,
+            },
+        )
+        .await?;
     }
 
     std::process::exit(exit_code)

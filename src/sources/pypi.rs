@@ -101,5 +101,14 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
         });
     }
 
+    // Drift detection: if the page looks non-trivial but we parsed nothing,
+    // the markup probably changed. Signal the retry path instead of silently
+    // returning empty -- an empty result from a real page is misleading.
+    if matches.is_empty() && html.len() > 2_000 {
+        return Err(Error::Parse(
+            "PyPI search page structure may have changed -- zero packages parsed from a non-trivial response".into(),
+        ));
+    }
+
     Ok(matches)
 }

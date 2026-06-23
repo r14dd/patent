@@ -117,13 +117,23 @@ impl SourceAdapter for Homebrew {
                     .all(|kw| name_lower.contains(kw) || desc_lower.contains(kw))
             })
             .take(20)
-            .map(|pkg| Match {
-                name: pkg.name,
-                source: Source::Homebrew,
-                url: pkg.homepage.unwrap_or_default(),
-                description: pkg.desc.unwrap_or_default(),
-                popularity: None,
-                similarity: 0.0,
+            .map(|pkg| {
+                // Synthesize a stable formulae.brew.sh URL when the formula has no
+                // homepage, so every row has a unique non-empty URL. Without this,
+                // homepage-less formulae all get url="" and the first one silently
+                // wins dedup, dropping all the rest.
+                let url = pkg
+                    .homepage
+                    .filter(|h| !h.is_empty())
+                    .unwrap_or_else(|| format!("{}/formula/{}", self.base_url, pkg.name));
+                Match {
+                    name: pkg.name,
+                    source: Source::Homebrew,
+                    url,
+                    description: pkg.desc.unwrap_or_default(),
+                    popularity: None,
+                    similarity: 0.0,
+                }
             })
             .collect())
     }

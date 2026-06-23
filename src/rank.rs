@@ -65,14 +65,33 @@ fn model_cache_dir() -> Option<std::path::PathBuf> {
 /// notice on the first run (the ~80 MB fetch otherwise looks like a hang before
 /// `fastembed`'s own progress bar appears). If the cache dir can't be resolved
 /// we assume it's present and stay quiet rather than risk a spurious notice.
+///
+/// Uses a recursive `.onnx` file check so a partial download (non-empty dir but
+/// no valid model file) doesn't suppress the notice.
 pub fn model_is_cached() -> bool {
-    match model_cache_dir() {
-        Some(dir) => dir
-            .read_dir()
-            .map(|mut entries| entries.next().is_some())
-            .unwrap_or(false),
-        None => true,
+    let Some(dir) = model_cache_dir() else {
+        return true;
+    };
+    has_onnx_in_tree(&dir)
+}
+
+fn has_onnx_in_tree(dir: &std::path::Path) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_file() {
+            if p.extension().is_some_and(|e| e == "onnx")
+                && p.metadata().is_ok_and(|meta| meta.len() > 0)
+            {
+                return true;
+            }
+        } else if p.is_dir() && has_onnx_in_tree(&p) {
+            return true;
+        }
     }
+    false
 }
 
 impl Ranker {

@@ -35,6 +35,20 @@ struct SearchResponse {
 #[derive(Debug, Deserialize)]
 struct SearchObject {
     package: Package,
+    #[serde(default)]
+    score: Option<Score>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Score {
+    #[serde(default)]
+    detail: ScoreDetail,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ScoreDetail {
+    #[serde(default)]
+    popularity: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,13 +81,19 @@ impl SourceAdapter for Npm {
         Ok(body
             .objects
             .into_iter()
-            .map(|o| Match {
-                url: format!("https://www.npmjs.com/package/{}", o.package.name),
-                name: o.package.name,
-                source: Source::Npm,
-                description: o.package.description.unwrap_or_default(),
-                popularity: None,
-                similarity: 0.0,
+            .map(|o| {
+                let pop = o
+                    .score
+                    .map(|s| (s.detail.popularity * 1_000_000.0) as u64)
+                    .filter(|&p| p > 0);
+                Match {
+                    url: format!("https://www.npmjs.com/package/{}", o.package.name),
+                    name: o.package.name,
+                    source: Source::Npm,
+                    description: o.package.description.unwrap_or_default(),
+                    popularity: pop,
+                    similarity: 0.0,
+                }
             })
             .collect())
     }

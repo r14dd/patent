@@ -39,6 +39,15 @@ enum Phase {
 const ACCENT: Color = Color::Cyan;
 const MUTED: Color = Color::DarkGray;
 
+/// LLM backend configuration forwarded from the CLI into the interactive TUI.
+#[derive(Debug, Clone)]
+pub struct TuiCfg {
+    pub api_base: Option<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub fast: bool,
+}
+
 fn level_icon(level: Saturation) -> &'static str {
     match level {
         Saturation::Open => "🟢",
@@ -910,13 +919,18 @@ fn open_selected(app: &App) {
 }
 
 /// Launch the TUI with pre-computed results (CLI provided an idea).
-pub async fn run_with_results(idea: &str, verdict: Verdict, matches: Vec<Match>) -> anyhow::Result<()> {
+pub async fn run_with_results(
+    idea: &str,
+    verdict: Verdict,
+    matches: Vec<Match>,
+    cfg: TuiCfg,
+) -> anyhow::Result<()> {
     let app = App::new(idea, verdict, matches);
-    run_tui(app, Phase::Results).await
+    run_tui(app, Phase::Results, cfg).await
 }
 
 /// Launch the TUI in interactive search mode (no idea on CLI).
-pub async fn run_interactive() -> anyhow::Result<()> {
+pub async fn run_interactive(cfg: TuiCfg) -> anyhow::Result<()> {
     let app = App::new(
         "",
         Verdict {
@@ -935,11 +949,12 @@ pub async fn run_interactive() -> anyhow::Result<()> {
             input: String::new(),
             cursor: 0,
         },
+        cfg,
     )
     .await
 }
 
-async fn run_tui(app: App, initial_phase: Phase) -> anyhow::Result<()> {
+async fn run_tui(app: App, initial_phase: Phase, cfg: TuiCfg) -> anyhow::Result<()> {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = execute!(std::io::stdout(), DisableMouseCapture);
@@ -950,14 +965,7 @@ async fn run_tui(app: App, initial_phase: Phase) -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableMouseCapture);
 
-    // let rt = tokio::runtime::Handle::current();
-    // let result = rt.block_on(run_loop(&mut terminal, app, initial_phase));
-    let result = run_loop(
-    &mut terminal,
-    app,
-    initial_phase,
-    )
-    .await;
+    let result = run_loop(&mut terminal, app, initial_phase, cfg).await;
 
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
@@ -975,6 +983,7 @@ async fn run_loop(
     terminal: &mut DefaultTerminal,
     mut app: App,
     initial_phase: Phase,
+    cfg: TuiCfg,
 ) -> anyhow::Result<()> {
     let mut table_state = TableState::default();
     let mut table_area = Rect::default();
@@ -1048,7 +1057,7 @@ async fn run_loop(
                         idea: idea.clone(),
                         tick: 0,
                     };
-                    tokio::spawn(run_search_pipeline(idea, tx));
+                    tokio::spawn(run_search_pipeline(idea, tx, cfg.clone()));
                 }
             }
             Phase::Searching { idea, .. } => {
@@ -1125,12 +1134,13 @@ fn handle_search_event(
 async fn run_search_pipeline(
     idea: String,
     tx: tokio::sync::oneshot::Sender<anyhow::Result<SearchResult>>,
+    cfg: TuiCfg,
 ) {
-    let result = execute_pipeline(idea).await;
+    let result = execute_pipeline(idea, cfg).await;
     let _ = tx.send(result);
 }
 
-async fn execute_pipeline(idea: String) -> anyhow::Result<SearchResult> {
+async fn execute_pipeline(idea: String, cfg: TuiCfg) -> anyhow::Result<SearchResult> {
     let query = crate::build_query(&idea);
 
     let idea_for_embed = query.idea.clone();
@@ -1148,13 +1158,39 @@ async fn execute_pipeline(idea: String) -> anyhow::Result<SearchResult> {
         reached,
         failed,
     } = search_result;
-    let (mut ranker, query_emb) = ranker_result.expect("embedding task panicked")?;
+    let (mut ranker, query_emb) =
+        ranker_result.map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))??;
 
-    let ranked = tokio::task::spawn_blocking(move || ranker.rank_with(&query_emb, raw_matches, 30))
-        .await
-        .expect("ranking task panicked")?;
+    let ranked = tokio::task::spawn_blocking(move || {
+        ranker.rank_with(&query_emb, raw_matches, patent::rank::DEFAULT_LIMIT)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("ranking task panicked: {e}"))??;
 
-    let verdict = patent::verdict::from_data(&ranked, reached, failed);
+    let verdict = if cfg.fast {
+        patent::verdict::from_data(&ranked, reached, failed)
+    } else {
+        let model_name = cfg
+            .model
+            .clone()
+            .unwrap_or_else(|| patent::ollama::DEFAULT_MODEL.to_string());
+        let llm: Box<dyn patent::Llm> = match &cfg.api_base {
+            Some(base) => Box::new(patent::openai::OpenAi::new(
+                base.clone(),
+                model_name.clone(),
+                cfg.api_key.clone(),
+            )),
+            None => Box::new(patent::ollama::Ollama::new(
+                patent::ollama::DEFAULT_ENDPOINT,
+                model_name,
+            )),
+        };
+        match patent::verdict::assess(&*llm, &query, &ranked, reached.clone(), failed.clone()).await
+        {
+            Ok(v) => v,
+            Err(_) => patent::verdict::from_data(&ranked, reached, failed),
+        }
+    };
 
     Ok(SearchResult {
         idea,

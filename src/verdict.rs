@@ -160,6 +160,14 @@ const ABSENCE_PHRASES: &[&str] = &[
     "brand new concept",
     "first of its kind",
     "unprecedented",
+    "greenfield",
+    "wide open",
+    "untapped",
+    "gap in the market",
+    "we found zero",
+    "zero implementations",
+    "zero results",
+    "no one is solving",
 ];
 
 /// True if `text` asserts that something does not exist.
@@ -349,6 +357,16 @@ fn parse_verdict(
     // data-derived headline, which names the close matches.
     let close = matches.iter().filter(|m| m.similarity >= 0.55).count();
     let headline = if close >= 1 && claims_no_match(&headline) {
+        data_headline(level, matches)
+    } else {
+        headline
+    };
+
+    // When level is Open and nothing close turned up, always use the data
+    // headline. The LLM may emit confident-sounding copy that reads as a green
+    // light even when the matches are too weak to trust. The data headline is
+    // the honest signal here.
+    let headline = if level == Saturation::Open && close == 0 {
         data_headline(level, matches)
     } else {
         headline
