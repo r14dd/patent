@@ -17,6 +17,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Publish
-        run: cargo publish --no-verify
+        run: |
+          out=$(cargo publish --no-verify 2>&1) && echo "$out" || {
+            echo "$out"
+            echo "$out" | grep -q "already exists" || exit 1
+            echo "Version already published, skipping."
+          }
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
