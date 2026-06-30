@@ -124,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!(
             "api_base is set but no model was specified. \
              Pass --model <NAME>, set PATENT_MODEL, or add `model = \"...\"` to \
-             ~/.config/patent/config.toml."
+             your patent config file (its location is shown in the README)."
         );
     }
     if api_key_explicit && api_base.is_none() {
@@ -183,7 +183,7 @@ async fn main() -> anyhow::Result<()> {
         matches: raw_matches,
         reached,
         failed,
-    } = search_result;
+    } = search_result?;
     let (mut ranker, query_emb) =
         ranker_result.map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))??;
 
@@ -256,11 +256,11 @@ async fn main() -> anyhow::Result<()> {
                 base.clone(),
                 model.clone(),
                 api_key.clone(),
-            )),
+            )?),
             None => Box::new(patent::ollama::Ollama::new(
                 patent::ollama::DEFAULT_ENDPOINT,
                 model.clone(),
-            )),
+            )?),
         };
 
         let t_verdict = std::time::Instant::now();

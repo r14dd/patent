@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0] - 2026-06-30
+
+### Added
+
+- rank: `rank_async` — an async-safe sibling of `rank` that offloads the blocking,
+  CPU-bound `fastembed` work onto `tokio::task::spawn_blocking` so it never stalls
+  the executor when called from async code (#34)
+- github: searches now use GitHub's default best-match (relevance) ordering instead
+  of `sort=stars`, with a wider result page, so low-star but on-topic repositories
+  surface for the semantic ranker instead of being buried by popular-but-unrelated
+  ones (#31)
+- ci: cache the `fastembed` embedding model across runs, removing the flaky
+  per-run model download (#46)
+
+### Changed
+
+- **Breaking (library API):** the HTTP-client builders no longer panic on failure.
+  `sources::search_all` now returns `Result<SearchOutcome>`, and `Ollama::new` /
+  `OpenAi::new` now return `Result<Self>`; a new `Error::HttpClient` variant carries
+  the build failure. `impl Default for Ollama` was removed (it could no longer be
+  infallible and had no callers). The `patent` binary is unaffected — it surfaces
+  the error via `anyhow` instead of aborting on a panic (#32)
+- rank: `rank` now documents that it is blocking and points async callers to
+  `rank_async`
+- **MSRV raised to 1.88** to match the actual minimum required by dependencies
+  (`ratatui`, `ort`, `image`, `time`); the previous `1.80` claim was already
+  unmet by the locked dependency tree. A CI job now enforces it.
+
 ## [0.5.1] - 2026-06-23
 
 ### Fixed

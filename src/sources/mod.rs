@@ -38,7 +38,7 @@ pub trait SourceAdapter: Send + Sync {
 
 use crate::model::Source as S;
 
-fn http_client() -> reqwest::Client {
+fn http_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .connect_timeout(Duration::from_secs(5))
@@ -48,7 +48,7 @@ fn http_client() -> reqwest::Client {
             " (prior-art search; https://github.com/r14dd/patent)"
         ))
         .build()
-        .expect("failed to build HTTP client")
+        .map_err(crate::Error::HttpClient)
 }
 
 fn idea_contains(idea: &str, terms: &[&str]) -> bool {
@@ -253,12 +253,13 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
 }
 
 /// Pick sources based on what the query is about.
-fn sources_for(query: &Query) -> Vec<Box<dyn SourceAdapter>> {
-    let client = http_client();
+fn sources_for(query: &Query) -> Result<Vec<Box<dyn SourceAdapter>>> {
+    let client = http_client()?;
     let ids = detect_sources(&query.idea);
-    ids.into_iter()
+    Ok(ids
+        .into_iter()
         .map(|id| build_source(id, client.clone()))
-        .collect()
+        .collect())
 }
 
 /// The outcome of a fan-out: deduped matches, the sources that responded, and
@@ -270,8 +271,11 @@ pub struct SearchOutcome {
 }
 
 /// Fan out to selected sources concurrently, dropping the ones that fail.
-pub async fn search_all(query: &Query) -> SearchOutcome {
-    search_sources(&sources_for(query), query).await
+///
+/// Returns an error only if the shared HTTP client cannot be built; individual
+/// source failures are non-fatal and surfaced via [`SearchOutcome::failed`].
+pub async fn search_all(query: &Query) -> Result<SearchOutcome> {
+    Ok(search_sources(&sources_for(query)?, query).await)
 }
 
 /// Run `query` against `sources` concurrently, skipping any that error, and
@@ -456,5 +460,22 @@ mod tests {
         assert!(s.contains(&S::Npm));
         assert!(s.contains(&S::PyPI));
         assert!(s.contains(&S::CratesIo));
+    }
+
+    #[test]
+    fn http_client_builds() {
+        // The client builder is fallible (no longer `.expect()`s); on a normal
+        // host it builds cleanly.
+        assert!(http_client().is_ok());
+    }
+
+    #[test]
+    fn sources_for_builds_selected_adapters() {
+        let q = Query {
+            idea: "a rust crate for parsing".to_string(),
+            keywords: vec![],
+        };
+        let sources = sources_for(&q).expect("client should build");
+        assert!(!sources.is_empty());
     }
 }

@@ -17,7 +17,7 @@ async fn generate_returns_message_content() {
         .mount(&server)
         .await;
 
-    let client = OpenAi::new(server.uri(), "gpt-4o-mini", None);
+    let client = OpenAi::new(server.uri(), "gpt-4o-mini", None).unwrap();
     assert_eq!(client.generate("say hi").await.unwrap(), "hi there");
 }
 
@@ -41,6 +41,7 @@ async fn generate_sends_model_and_user_message() {
         .await;
 
     OpenAi::new(server.uri(), "gpt-4o-mini", None)
+        .unwrap()
         .generate("say hi")
         .await
         .unwrap();
@@ -58,6 +59,7 @@ async fn generate_sends_bearer_auth_when_key_set() {
         .await;
 
     OpenAi::new(server.uri(), "gpt-4o-mini", Some("sk-test".into()))
+        .unwrap()
         .generate("hi")
         .await
         .unwrap();
@@ -65,7 +67,7 @@ async fn generate_sends_bearer_auth_when_key_set() {
 
 #[tokio::test]
 async fn generate_maps_connection_error_to_llm_unreachable() {
-    let client = OpenAi::new("http://127.0.0.1:1", "gpt-4o-mini", None);
+    let client = OpenAi::new("http://127.0.0.1:1", "gpt-4o-mini", None).unwrap();
     let err = client.generate("hi").await.unwrap_err();
     assert!(
         matches!(err, patent::Error::LlmUnreachable(_)),
@@ -86,6 +88,7 @@ async fn generate_maps_http_error_to_llm_rejected() {
         .await;
 
     let err = OpenAi::new(server.uri(), "gpt-4o-mini", None)
+        .unwrap()
         .generate("hi")
         .await
         .unwrap_err();
@@ -109,6 +112,7 @@ async fn generate_maps_empty_choices_to_llm_rejected() {
         .await;
 
     let err = OpenAi::new(server.uri(), "gpt-4o-mini", None)
+        .unwrap()
         .generate("hi")
         .await
         .unwrap_err();
@@ -129,6 +133,7 @@ async fn generate_maps_non_json_success_body_to_llm_rejected() {
         .await;
 
     let err = OpenAi::new(server.uri(), "gpt-4o-mini", None)
+        .unwrap()
         .generate("hi")
         .await
         .unwrap_err();

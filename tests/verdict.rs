@@ -117,7 +117,7 @@ async fn assess_drops_gaps_naming_a_top_match() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &sample_matches(), checked(), vec![])
         .await
         .unwrap();
@@ -152,7 +152,7 @@ async fn assess_gap_filter_uses_word_boundaries() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(
         &ollama,
         &query(),
@@ -207,7 +207,7 @@ async fn assess_returns_verdict_with_caveat() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let sources = checked();
     let v = verdict::assess(
         &ollama,
@@ -235,7 +235,7 @@ async fn assess_parses_open_level() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
         .await
         .unwrap();
@@ -252,7 +252,7 @@ async fn assess_parses_crowded_level() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(
         &ollama,
         &query(),
@@ -272,7 +272,7 @@ async fn assess_handles_json_wrapped_in_markdown_fence() {
     let fenced = "```json\n{\"level\":\"Open\",\"headline\":\"Nothing found.\",\"gaps\":[]}\n```";
     let server = mock_ollama(json!({"response": fenced, "done": true})).await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
         .await
         .unwrap();
@@ -283,7 +283,7 @@ async fn assess_handles_json_wrapped_in_markdown_fence() {
 async fn assess_rejects_garbage_response() {
     let server = mock_ollama(json!({"response": "I don't know what JSON is", "done": true})).await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let err = verdict::assess(&ollama, &query(), &[], vec![], vec![])
         .await
         .unwrap_err();
@@ -302,7 +302,7 @@ async fn assess_floors_level_when_model_underrates_a_crowded_space() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &sample_matches(), checked(), vec![])
         .await
         .unwrap();
@@ -330,7 +330,7 @@ async fn assess_replaces_absence_claiming_headline() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
         .await
         .unwrap();
@@ -361,7 +361,7 @@ async fn assess_drops_gaps_that_assert_absence() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
         .await
         .unwrap();
@@ -383,7 +383,7 @@ async fn assess_scrubs_broadened_absence_phrasings() {
         "There is no existing software like this.",
     ] {
         let server = mock_ollama(ollama_response("Open", headline, &[])).await;
-        let ollama = Ollama::new(server.uri(), "qwen2.5");
+        let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
         let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
             .await
             .unwrap();
@@ -403,7 +403,7 @@ async fn assess_scrubs_broadened_absence_phrasings() {
 async fn assess_threads_failed_sources_into_verdict() {
     let server = mock_ollama(ollama_response("Open", "Nothing close turned up.", &[])).await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(
         &ollama,
         &query(),
@@ -437,7 +437,7 @@ async fn assess_replaces_no_match_headline_when_a_close_match_exists() {
     ))
     .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &matches, checked(), vec![])
         .await
         .unwrap();
@@ -469,7 +469,7 @@ async fn assess_floors_single_very_strong_match_to_crowded() {
         similarity: 0.72,
     }];
     let server = mock_ollama(ollama_response("Open", "A benign headline.", &[])).await;
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &matches, checked(), vec![])
         .await
         .unwrap();
@@ -500,7 +500,7 @@ async fn assess_retries_on_server_error() {
         .mount(&server)
         .await;
 
-    let ollama = Ollama::new(server.uri(), "qwen2.5");
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
     let v = verdict::assess(&ollama, &query(), &sample_matches(), checked(), vec![])
         .await
         .unwrap();

@@ -152,6 +152,12 @@ impl Ranker {
 }
 
 /// Convenience wrapper: load model, embed, rank in one call.
+///
+/// **Blocking.** This runs synchronous, CPU-bound `fastembed` work (and may
+/// download ~80 MB on the first run). Calling it directly from an `async` task
+/// stalls the Tokio executor for the whole duration. From async code use
+/// [`rank_async`], or drive the split [`Ranker`] / [`Ranker::embed_query`] /
+/// [`Ranker::rank_with`] API inside [`tokio::task::spawn_blocking`].
 pub fn rank(query: &Query, matches: Vec<Match>, limit: usize) -> crate::Result<Vec<Match>> {
     if matches.is_empty() {
         return Ok(vec![]);
@@ -159,6 +165,29 @@ pub fn rank(query: &Query, matches: Vec<Match>, limit: usize) -> crate::Result<V
     let mut ranker = Ranker::new()?;
     let query_emb = ranker.embed_query(&query.idea)?;
     ranker.rank_with(&query_emb, matches, limit)
+}
+
+/// Async-safe ranking: same as [`rank`] but offloads the blocking, CPU-bound
+/// embedding work onto [`tokio::task::spawn_blocking`] so it never stalls the
+/// async executor. Must be awaited inside a Tokio runtime.
+pub async fn rank_async(
+    query: &Query,
+    matches: Vec<Match>,
+    limit: usize,
+) -> crate::Result<Vec<Match>> {
+    if matches.is_empty() {
+        return Ok(vec![]);
+    }
+    // The blocking closure must be 'static, so take an owned copy of the idea
+    // rather than borrowing `query` across the task boundary.
+    let idea = query.idea.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut ranker = Ranker::new()?;
+        let query_emb = ranker.embed_query(&idea)?;
+        ranker.rank_with(&query_emb, matches, limit)
+    })
+    .await
+    .map_err(|e| crate::Error::Embedding(format!("ranking task panicked: {e}")))?
 }
 
 #[cfg(test)]
@@ -346,5 +375,30 @@ mod tests {
                 pair[1].similarity,
             );
         }
+    }
+
+    // -- rank_async tests -----------------------------------------------------
+
+    #[tokio::test]
+    async fn rank_async_empty_returns_empty() {
+        // Early-return path: no runtime model load, no spawned task.
+        let result = rank_async(&test_query(), vec![], 10).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rank_async_orders_relevant_above_irrelevant() {
+        // Warm the shared model first so rank_async's internal Ranker::new()
+        // loads from cache instead of racing a parallel first download.
+        let _ = shared_ranker();
+        let matches = vec![
+            test_match("recipes", "A collection of baking recipes and kitchen tips"),
+            test_match(
+                "tokio",
+                "An event-driven non-blocking I/O platform for async Rust",
+            ),
+        ];
+        let result = rank_async(&test_query(), matches, 10).await.unwrap();
+        assert_eq!(result[0].name, "tokio");
     }
 }

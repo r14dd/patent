@@ -1157,7 +1157,7 @@ async fn execute_pipeline(idea: String, cfg: TuiCfg) -> anyhow::Result<SearchRes
         matches: raw_matches,
         reached,
         failed,
-    } = search_result;
+    } = search_result?;
     let (mut ranker, query_emb) =
         ranker_result.map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))??;
 
@@ -1179,11 +1179,11 @@ async fn execute_pipeline(idea: String, cfg: TuiCfg) -> anyhow::Result<SearchRes
                 base.clone(),
                 model_name.clone(),
                 cfg.api_key.clone(),
-            )),
+            )?),
             None => Box::new(patent::ollama::Ollama::new(
                 patent::ollama::DEFAULT_ENDPOINT,
                 model_name,
-            )),
+            )?),
         };
         match patent::verdict::assess(&*llm, &query, &ranked, reached.clone(), failed.clone()).await
         {

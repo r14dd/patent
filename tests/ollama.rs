@@ -5,7 +5,7 @@ use wiremock::matchers::{body_json_string, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn ollama_for(server: &MockServer, model: &str) -> Ollama {
-    Ollama::new(server.uri(), model)
+    Ollama::new(server.uri(), model).unwrap()
 }
 
 fn generate_response(text: &str) -> serde_json::Value {
@@ -58,7 +58,7 @@ async fn generate_sends_model_and_prompt() {
 
 #[tokio::test]
 async fn generate_maps_connection_error_to_llm_unreachable() {
-    let ollama = Ollama::new("http://127.0.0.1:1", "qwen2.5");
+    let ollama = Ollama::new("http://127.0.0.1:1", "qwen2.5").unwrap();
     let err = ollama.generate("hi").await.unwrap_err();
     assert!(
         matches!(err, patent::Error::LlmUnreachable(_)),

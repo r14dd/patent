@@ -21,7 +21,7 @@ use patent::sources::vscode::VsCodeMarketplace;
 use patent::sources::{dedup, search_sources, SearchOutcome, SourceAdapter};
 use reqwest::Client;
 use serde_json::json;
-use wiremock::matchers::{header_exists, method, path, query_param};
+use wiremock::matchers::{header_exists, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn test_client() -> reqwest::Client {
@@ -310,7 +310,10 @@ async fn github_sends_query_and_user_agent() {
     Mock::given(method("GET"))
         .and(path("/search/repositories"))
         .and(query_param("q", "async runtime in:description,readme"))
-        .and(query_param("sort", "stars"))
+        // #31: no `sort` param (GitHub defaults to best-match relevance, not
+        // raw stars) and a wider page so low-star on-topic repos can surface.
+        .and(query_param_is_missing("sort"))
+        .and(query_param("per_page", "50"))
         .and(header_exists("user-agent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(github_body()))
         .expect(1)

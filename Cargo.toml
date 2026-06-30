@@ -1,16 +1,15 @@
 [package]
 name = "patent"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "A prior-art search for your code ideas — has this dev tool already been shipped?"
 repository = "https://github.com/r14dd/patent"
-homepage = "https://github.com/r14dd/patent"
 documentation = "https://docs.rs/patent"
 authors = ["Riad Mukhtarov"]
 readme = "README.md"
-keywords = ["search", "cli", "prior-art", "semantic-search", "dev-tools"]
+keywords = ["prior-art", "semantic-search", "embeddings", "search", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = [
     ".github/",
@@ -27,6 +26,9 @@ exclude = [
     "showcase.tape",
     "showcase.gif",
     "showcase.png",
+    # Nix dev-environment files — not needed by crate consumers.
+    "flake.nix",
+    "flake.lock",
 ]
 
 [lib]
@@ -80,3 +82,9 @@ tokio-test = "0.4"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# Pin the docs.rs build so the native ONNX Runtime dependency (via fastembed)
+# can't silently break the advertised docs.rs page.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

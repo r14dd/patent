@@ -16,18 +16,22 @@ pub struct OpenAi {
 }
 
 impl OpenAi {
-    pub fn new(base: impl Into<String>, model: impl Into<String>, api_key: Option<String>) -> Self {
+    pub fn new(
+        base: impl Into<String>,
+        model: impl Into<String>,
+        api_key: Option<String>,
+    ) -> crate::Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
-            .expect("failed to build HTTP client");
-        Self {
+            .map_err(crate::Error::HttpClient)?;
+        Ok(Self {
             base: base.into(),
             model: model.into(),
             api_key,
             client,
-        }
+        })
     }
 }
 

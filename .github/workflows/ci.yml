@@ -22,6 +22,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The rank tests download the ~80 MB fastembed model into
+      # ~/.cache/patent/fastembed (see rank::model_cache_dir). rust-cache only
+      # persists ~/.cargo and target/, so without this the model is re-fetched
+      # every run — an intermittent network hiccup then flakes the job.
+      - name: Cache fastembed embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/patent/fastembed
+          key: ${{ runner.os }}-fastembed-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-fastembed-
+
       - name: fmt
         run: cargo fmt --all --check
 
@@ -33,3 +45,37 @@ jobs:
 
       - name: build
         run: cargo build --release
+
+  msrv:
+    name: msrv (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Enforce the declared rust-version / MSRV badge so a dependency bump that
+      # raises the real minimum compiler fails the PR instead of silently
+      # invalidating the 1.88+ claim.
+      - name: Install 1.88 toolchain
+        uses: dtolnay/rust-toolchain@1.88
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --all-targets --locked
+
+  macos:
+    name: macos (build check)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # macOS (aarch64-apple-darwin) is a release target but is otherwise only
+      # built at tag time; a cheap check here catches platform-specific compile
+      # breaks on PRs instead of mid-release.
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --all-targets

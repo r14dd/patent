@@ -1,8 +1,9 @@
 //! `patent` — a prior-art search for your code ideas.
 //!
 //! Takes a plain-English dev-tool idea and searches the open-source ecosystem —
-//! crates.io, npm, PyPI, GitHub, Go, Maven, NuGet, RubyGems, Docker Hub, the VS
-//! Code Marketplace, and Hacker News — for prior art, then gives an honest,
+//! crates.io, npm, PyPI, GitHub, Go, Maven, NuGet, RubyGems, Docker Hub,
+//! Homebrew, the VS Code Marketplace, and Hacker News — for prior art, then
+//! gives an honest,
 //! scoped verdict on whether it's already been built. The exact set searched is
 //! chosen per query; whichever sources actually responded are always surfaced.
 //!
@@ -29,7 +30,8 @@
 //!
 //! `patent` is primarily the engine behind the CLI of the same name, but the
 //! core is reusable: [`sources::search_all`] fans out to the registries,
-//! [`rank`] orders matches by semantic similarity, and [`verdict::assess`]
+//! [`rank`] (or the async-safe [`rank::rank_async`]) orders matches by
+//! semantic similarity, and [`verdict::assess`]
 //! turns them into an integrity-scoped [`Verdict`] via any [`Llm`] backend
 //! (local Ollama or an OpenAI-compatible API).
 
@@ -51,6 +53,13 @@ pub use model::{Match, Query, Saturation, Source, Verdict};
 pub enum Error {
     #[error("http request failed: {0}")]
     Http(#[from] reqwest::Error),
+
+    /// The shared HTTP client could not be constructed (e.g. the TLS backend
+    /// failed to initialize). Surfaced instead of panicking so library
+    /// consumers can handle it. Distinct from [`Error::Http`] (a request that
+    /// was sent and failed) — this is a failure to build the client at all.
+    #[error("failed to build HTTP client: {0}")]
+    HttpClient(#[source] reqwest::Error),
 
     #[error("failed to parse response: {0}")]
     Parse(String),

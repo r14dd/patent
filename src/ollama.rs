@@ -20,17 +20,17 @@ pub struct Ollama {
 }
 
 impl Ollama {
-    pub fn new(endpoint: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(endpoint: impl Into<String>, model: impl Into<String>) -> crate::Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
-            .expect("failed to build HTTP client");
-        Self {
+            .map_err(crate::Error::HttpClient)?;
+        Ok(Self {
             endpoint: endpoint.into(),
             model: model.into(),
             client,
-        }
+        })
     }
 }
 
@@ -108,11 +108,5 @@ impl Llm for Ollama {
 
     fn label(&self) -> &str {
         "Ollama"
-    }
-}
-
-impl Default for Ollama {
-    fn default() -> Self {
-        Self::new(DEFAULT_ENDPOINT, DEFAULT_MODEL)
     }
 }

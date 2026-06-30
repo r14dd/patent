@@ -75,11 +75,17 @@ impl SourceAdapter for GitHub {
         let url = format!("{}/search/repositories", self.base_url);
         let q = format!("{} in:description,readme", query.keywords.join(" "));
 
+        // No `sort`: GitHub then orders by its default "best match" (text
+        // relevance) rather than raw stars, so a low-star but on-topic repo
+        // isn't buried below the page window by popular-but-less-relevant ones.
+        // rank.rs does the final semantic ordering; popularity stays an
+        // informational signal (Match.popularity), not a gate on inclusion. A
+        // wider page (50) deepens the candidate pool for the long tail.
         let mut request = self
             .client
             .get(&url)
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-            .query(&[("q", q.as_str()), ("sort", "stars"), ("per_page", "20")]);
+            .query(&[("q", q.as_str()), ("per_page", "50")]);
         if let Some(token) = &self.token {
             request = request.bearer_auth(token);
         }
