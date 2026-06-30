@@ -27,7 +27,7 @@ jobs:
       # persists ~/.cargo and target/, so without this the model is re-fetched
       # every run — an intermittent network hiccup then flakes the job.
       - name: Cache fastembed embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/patent/fastembed
           key: ${{ runner.os }}-fastembed-${{ hashFiles('**/Cargo.lock') }}
