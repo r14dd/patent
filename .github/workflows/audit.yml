@@ -19,11 +19,14 @@ jobs:
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v7
-      - uses: rustsec/audit-check@v2
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      # RUSTSEC-2024-0436: `paste` is unmaintained but is only reachable as a
+      # transitive proc-macro dependency (via fastembed/image) with no
+      # maintained drop-in replacement, so it is accepted explicitly. Real
+      # vulnerabilities (anything not ignored here) still fail the job.
+      - name: cargo audit
+        run: cargo audit --ignore RUSTSEC-2024-0436
