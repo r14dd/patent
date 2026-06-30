@@ -62,6 +62,21 @@ Check the issue tracker for labels:
 
 Comment on an issue before starting so we don't duplicate effort.
 
+## Verdict integrity (non-negotiable)
+
+This is the product's whole point — please don't soften it in a PR:
+
+- The tool can prove something **exists**; it can **never** prove something
+  *doesn't* — it only searched some sources. All verdict copy is scoped to
+  *"found in the sources checked,"* never *"this doesn't exist."*
+- The sources-checked list is always displayed, and selected sources that
+  failed are surfaced as "not reached," so a thin result is never mistaken for
+  "nothing out there."
+- `verdict.rs` enforces this in code (`guard_headline` scrubs absence claims;
+  `floor_level` floors the level against the similarity data). Changes to
+  `verdict.rs`, the prompt, or `ollama.rs`/`openai.rs` must preserve these
+  guards — a reviewer will hold the line on it.
+
 ## Code style
 
 - `thiserror` for library errors (`patent::Error`), `anyhow` in the binary.

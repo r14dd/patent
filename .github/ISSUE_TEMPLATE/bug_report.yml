@@ -1,0 +1,58 @@
+name: Bug report
+description: Something didn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please fill in as much as you can.
+  - type: input
+    id: version
+    attributes:
+      label: patent version
+      description: Output of `patent --version`.
+      placeholder: "0.6.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / platform
+      placeholder: "macOS 14 (aarch64) / Ubuntu 24.04 (x86_64) / Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: idea
+    attributes:
+      label: The idea string you searched
+      description: The exact text you passed to `patent`, if relevant.
+      placeholder: '"interactive cli to kill whatever''s on a port"'
+    validations:
+      required: false
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Verdict backend
+      options:
+        - Local Ollama (default)
+        - OpenAI-compatible (--api-base)
+        - --fast (no LLM)
+        - Not sure / not relevant
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead. Paste relevant output (redact any API keys).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `patent "..."`
+        2. ...
+    validations:
+      required: false

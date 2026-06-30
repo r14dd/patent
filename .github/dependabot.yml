@@ -8,3 +8,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # cargo-dist regenerates release.yml / publish-crates.yml from
+      # dist-workspace.toml and its CI freshness check pins actions/checkout to
+      # the version dist expects (currently v6). Let `dist generate` manage the
+      # bump instead of Dependabot hand-bumping it out of sync (#64).
+      - dependency-name: actions/checkout

@@ -9,17 +9,34 @@
   <a href="https://crates.io/crates/patent"><img src="https://img.shields.io/crates/v/patent.svg?logo=rust" alt="crates.io"></a>
   <a href="https://docs.rs/patent"><img src="https://docs.rs/patent/badge.svg" alt="docs.rs"></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="license"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/MSRV-1.80%2B-lightgray.svg?logo=rust" alt="MSRV"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/MSRV-1.88%2B-lightgray.svg?logo=rust" alt="MSRV"></a>
   <a href="https://ratatui.rs/"><img src="https://ratatui.rs/built-with-ratatui/badge.svg" alt="Built With Ratatui"></a>
 </p>
 
-`patent` takes a plain-English dev-tool idea and searches 12 open-source registries — crates.io, npm, PyPI, GitHub, Homebrew, and more. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
+`patent` takes a plain-English dev-tool idea and searches 12 sources — package registries (crates.io, npm, PyPI, Homebrew, and more) plus GitHub and Hacker News. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/r14dd/patent/main/showcase.gif" alt="patent demo" width="720">
 </p>
 
 > Like a patent search, but for code. It finds prior art, yet, never certifies absence.
+
+## Why patent?
+
+Before you build a dev tool, `patent` checks whether it already exists. One query fans out across 12 sources at once — package registries plus GitHub and Hacker News — instead of you searching each by hand. Matches are ranked locally by *semantic* similarity (not keyword match), so close-but-differently-worded prior art still surfaces, and the verdict is scoped to what was actually found — an honest "keep looking" rather than a hallucinated "this is novel."
+
+## How it works
+
+1. **Source selection** — `patent` picks the registries relevant to your idea; GitHub and Hacker News are always searched.
+2. **Semantic ranking** — every match is embedded locally with [`fastembed`](https://github.com/Anush008/fastembed-rs) and ranked by cosine similarity to your idea.
+3. **Verdict** — an LLM summarises the landscape into one of three levels, *floored* against the similarity data so it can never under-rate a populated space:
+   - 🟢 **Open** — nothing close found in the sources checked.
+   - 🟡 **Crowded** — a few adjacent tools exist.
+   - 🔴 **Saturated** — the space is densely populated.
+
+## What a clean result means
+
+`patent` can prove something **exists**; it can never prove something **doesn't** — it only searched some sources. Every verdict is scoped to "found in the sources checked," the list of sources checked is always shown, and any selected source that failed is surfaced as "not reached." A clean **Open** result means *keep looking before you commit*, not a green light.
 
 ## Install
 
@@ -36,6 +53,8 @@ Pre-built binaries are on the [releases page](https://github.com/r14dd/patent/re
 **Linux build deps** — needed before `cargo install`:
 - Fedora / RHEL: `sudo dnf install openssl-devel gcc-c++`
 - Ubuntu / Debian: `sudo apt install libssl-dev g++`
+
+**glibc 2.38+** — both the prebuilt binaries and a from-source `cargo install` require glibc 2.38 or newer (Ubuntu 22.10+, Debian 12+, Fedora 38+). The bundled ONNX Runtime that powers local semantic search depends on it. On older distributions such as Ubuntu 22.04 (glibc 2.35), build inside a newer toolchain — e.g. a `debian:12` / `ubuntu:24.04` container — rather than on the host ([#37](https://github.com/r14dd/patent/issues/37)).
 
 ## Usage
 
@@ -69,7 +88,11 @@ patent "kubernetes log viewer" --api-base https://api.openai.com/v1 --model gpt-
 | `--limit <N>` | max matches to keep after ranking | `50` |
 | `--completions <SHELL>` | print shell completions and exit | — |
 
-Settings can also be stored in `~/.config/patent/config.toml`:
+Settings can also be stored in a `config.toml` in your platform's config directory:
+
+- **Linux**: `~/.config/patent/config.toml`
+- **macOS**: `~/Library/Application Support/patent/config.toml`
+- **Windows**: `%APPDATA%\patent\config.toml`
 
 ```toml
 model    = "gpt-4o-mini"
@@ -78,6 +101,22 @@ api_key  = "sk-..."
 ```
 
 Precedence: CLI flag > environment variable > config file > built-in default.
+
+## Exit codes
+
+`patent` exits with a status derived from the verdict, so you can gate scripts and CI on it:
+
+| Code | Meaning |
+|---|---|
+| `0` | Open |
+| `1` | Crowded |
+| `2` | Saturated |
+
+(Usage errors and unreachable backends exit non-zero as well.)
+
+## Use as a library
+
+`patent` is also a published library crate — the engine is reusable. See [docs.rs/patent](https://docs.rs/patent): `sources::search_all` fans out to the registries, `rank::rank_async` ranks matches by semantic similarity, and `verdict::assess` produces the integrity-scoped verdict over any LLM backend.
 
 ## TUI keybindings
 
@@ -119,7 +158,7 @@ cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 ```
 
-The demo GIF is generated with [vhs](https://github.com/charmbracelet/vhs): `vhs demo.tape`.
+The demo GIF embedded above (`showcase.gif`) is generated with [vhs](https://github.com/charmbracelet/vhs): `vhs showcase.tape`.
 
 ## License
 

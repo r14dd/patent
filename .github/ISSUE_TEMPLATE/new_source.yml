@@ -1,0 +1,38 @@
+name: New source adapter
+description: Propose a new ecosystem / registry for patent to search
+labels: ["new-source", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        patent has a well-worn pattern for adding sources — see the
+        "Adding a new source adapter" section in CONTRIBUTING.md.
+  - type: input
+    id: source
+    attributes:
+      label: Source / registry name
+      placeholder: "Packagist (PHP/Composer)"
+    validations:
+      required: true
+  - type: input
+    id: api
+    attributes:
+      label: Search API or endpoint
+      description: A public search API or, failing that, a search page that can be parsed.
+      placeholder: "https://packagist.org/search.json?q={query}"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why add it
+      description: What kind of prior art lives here that the existing 12 sources miss?
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Auth/rate-limit requirements, response shape quirks, anything a contributor should know.
+    validations:
+      required: false

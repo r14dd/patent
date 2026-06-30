@@ -18,10 +18,15 @@ jobs:
 
       - name: Publish
         run: |
-          out=$(cargo publish --no-verify 2>&1) && echo "$out" || {
-            echo "$out"
-            echo "$out" | grep -q "already exists" || exit 1
-            echo "Version already published, skipping."
-          }
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          # Idempotent on a robust signal (the crates.io API), not a substring of
+          # cargo's stderr: skip cleanly if this exact version is already live.
+          if curl -fsS "https://crates.io/api/v1/crates/patent/$version" >/dev/null 2>&1; then
+            echo "patent $version is already on crates.io — skipping."
+            exit 0
+          fi
+          # No --no-verify: keep the pre-publish build/package check before the
+          # immutable crates.io upload.
+          cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
