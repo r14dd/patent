@@ -56,7 +56,7 @@ jobs:
       # raises the real minimum compiler fails the PR instead of silently
       # invalidating the 1.88+ claim.
       - name: Install 1.88 toolchain
-        uses: dtolnay/rust-toolchain@1.88
+        uses: dtolnay/rust-toolchain@1.100
 
       - uses: Swatinem/rust-cache@v2
 
