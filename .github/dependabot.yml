@@ -14,3 +14,8 @@ updates:
       # the version dist expects (currently v6). Let `dist generate` manage the
       # bump instead of Dependabot hand-bumping it out of sync (#64).
       - dependency-name: actions/checkout
+      # dtolnay/rust-toolchain is pinned by Rust-version tag (@stable, @1.88 for
+      # the MSRV job), not by action release. Dependabot misreads the @1.88 tag
+      # as a version and tries to chase it (e.g. 1.100), which breaks the MSRV
+      # job. The MSRV pin is intentional, so don't auto-bump it.
+      - dependency-name: dtolnay/rust-toolchain
