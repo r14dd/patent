@@ -13,15 +13,19 @@ use futures::future::join_all;
 use crate::model::{Match, Query};
 use crate::Result;
 
+pub mod artifacthub;
+pub mod aur;
 pub mod crates_io;
 pub mod docker_hub;
 pub mod github;
 pub mod go;
 pub mod hacker_news;
+pub mod hex;
 pub mod homebrew;
 pub mod maven;
 pub mod npm;
 pub mod nuget;
+pub mod packagist;
 pub mod pypi;
 pub mod rubygems;
 pub mod vscode;
@@ -117,6 +121,30 @@ fn detect_sources(idea: &str) -> HashSet<S> {
         &["c#", ".net", "csharp", "dotnet", "nuget", "blazor", "unity"],
     ) {
         s.insert(S::NuGet);
+    }
+    if idea_contains(idea, &["php", "composer", "laravel", "symfony"]) {
+        s.insert(S::Packagist);
+    }
+    if idea_contains(idea, &["elixir", "erlang", "phoenix", "hex", "mix"]) {
+        s.insert(S::Hex);
+    }
+    if idea_contains(
+        idea,
+        &[
+            "helm",
+            "kubernetes",
+            "k8s",
+            "cncf",
+            "cloud-native",
+            "operator",
+            "kubectl",
+            "crd",
+        ],
+    ) {
+        s.insert(S::ArtifactHub);
+    }
+    if idea_contains(idea, &["arch", "aur", "pacman", "archlinux"]) {
+        s.insert(S::Aur);
     }
 
     if idea_contains(
@@ -249,6 +277,10 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
         S::VsCodeMarketplace => Box::new(vscode::VsCodeMarketplace::new(client)),
         S::NuGet => Box::new(nuget::NuGet::new(client)),
         S::Homebrew => Box::new(homebrew::Homebrew::new(client)),
+        S::Packagist => Box::new(packagist::Packagist::new(client)),
+        S::Hex => Box::new(hex::Hex::new(client)),
+        S::ArtifactHub => Box::new(artifacthub::ArtifactHub::new(client)),
+        S::Aur => Box::new(aur::Aur::new(client)),
     }
 }
 
@@ -394,6 +426,10 @@ mod tests {
             "a docker container for kubernetes",
             "a vscode extension for editors",
             "a macos homebrew tool",
+            "a php composer package for laravel",
+            "an elixir phoenix library for caching",
+            "a helm chart to deploy a kubernetes operator",
+            "a pacman helper for installing arch linux aur packages",
             "anything at all with no signal",
         ];
         let mut seen: HashSet<S> = HashSet::new();
@@ -413,6 +449,10 @@ mod tests {
             S::VsCodeMarketplace,
             S::NuGet,
             S::Homebrew,
+            S::Packagist,
+            S::Hex,
+            S::ArtifactHub,
+            S::Aur,
         ] {
             assert!(
                 seen.contains(&variant),

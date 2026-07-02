@@ -2,8 +2,8 @@
 //!
 //! Takes a plain-English dev-tool idea and searches the open-source ecosystem —
 //! crates.io, npm, PyPI, GitHub, Go, Maven, NuGet, RubyGems, Docker Hub,
-//! Homebrew, the VS Code Marketplace, and Hacker News — for prior art, then
-//! gives an honest,
+//! Homebrew, Packagist, Hex, Artifact Hub, AUR, the VS Code Marketplace, and
+//! Hacker News — for prior art, then gives an honest,
 //! scoped verdict on whether it's already been built. The exact set searched is
 //! chosen per query; whichever sources actually responded are always surfaced.
 //!

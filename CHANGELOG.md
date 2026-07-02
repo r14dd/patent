@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.7.0] - 2026-07-02
+
+### Added
+
+- New sources: **Packagist** (PHP/Composer), **Hex** (Erlang/Elixir), **Artifact
+  Hub** (Cloud Native — Helm charts, operators, kubectl plugins), and **AUR**
+  (Arch User Repository) — 16 sources total (#24, #41, #42, #22)
+- verdict: the LLM prompt now includes each match's popularity and URL so the
+  model can weight firmly-established prior art (#60)
+- tests: a live smoke-test harness (`tests/live.rs`) that exercises every source
+  against its real API — the one failure mode the hermetic wiremock suite can't
+  catch (an upstream response shape changing while the mocked tests stay green).
+  All tests are `#[ignore]`d so `cargo test` stays offline; a nightly `live`
+  workflow runs them on a schedule so drift surfaces as a failed run
+
+### Changed
+
+- **Privacy:** running with `--api-base` now prints a one-time notice that the
+  search query is sent to the remote server; also documented in the README (#62)
+- **Breaking (library API):** the `Source` enum gained `Packagist`, `Hex`,
+  `ArtifactHub`, and `Aur` variants (downstream exhaustive matches must update)
+
+### Known issues
+
+- **PyPI search is temporarily unavailable.** PyPI has retired its keyless search
+  paths (the XML-RPC endpoint is gone) and now serves its web search behind a bot
+  challenge, so the scrape-based adapter returns nothing. This is surfaced
+  honestly at runtime — PyPI is reported as *"not reached,"* never as an empty
+  result — and the live smoke test for it is skipped in CI pending a keyless
+  replacement backend, tracked for 0.7.1
+
 ## [0.6.0] - 2026-06-30
 
 ### Added

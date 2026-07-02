@@ -51,13 +51,24 @@ pub fn build_prompt(query: &Query, matches: &[Match], sources_checked: &[Source]
         prompt.push_str("## Matches found (ranked by cosine similarity to the idea)\n");
         prompt.push_str(&format!(
             "Top-10 average similarity: {:.2} (scale: 0.0 = unrelated, 0.5 = tangential, \
-             0.7+ = strong match)\n\n",
+             0.7+ = strong match). Each match also shows a popularity figure (a per-source \
+             signal of how established it is — stars, downloads, etc.) and its URL; a strong \
+             match that is also popular is firmer prior art.\n\n",
             avg_sim,
         ));
         for m in matches.iter().take(15) {
+            let pop = match m.popularity {
+                Some(p) => format!(", popularity {p}"),
+                None => String::new(),
+            };
+            let url = if m.url.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", m.url)
+            };
             prompt.push_str(&format!(
-                "- **{}** ({}, sim {:.2}): {}\n",
-                m.name, m.source, m.similarity, m.description,
+                "- **{}** ({}, sim {:.2}{}){}: {}\n",
+                m.name, m.source, m.similarity, pop, url, m.description,
             ));
         }
         if matches.len() > 15 {

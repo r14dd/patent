@@ -6,15 +6,19 @@
 // M1: crates.io parsing via wiremock.
 // M2: each remaining source + dedup.
 use patent::model::{Match, Query, Source as SourceId};
+use patent::sources::artifacthub::ArtifactHub;
+use patent::sources::aur::Aur;
 use patent::sources::crates_io::CratesIo;
 use patent::sources::docker_hub::DockerHub;
 use patent::sources::github::GitHub;
 use patent::sources::go::GoPkgDev;
 use patent::sources::hacker_news::HackerNews;
+use patent::sources::hex::Hex;
 use patent::sources::homebrew::Homebrew;
 use patent::sources::maven::Maven;
 use patent::sources::npm::Npm;
 use patent::sources::nuget::NuGet;
+use patent::sources::packagist::Packagist;
 use patent::sources::pypi::PyPI;
 use patent::sources::rubygems::RubyGems;
 use patent::sources::vscode::VsCodeMarketplace;
@@ -1390,4 +1394,577 @@ async fn test_homebrew_server_error() {
         result.is_err(),
         "Expected the adapter to return an Error when hitting a 500 status code"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Packagist (PHP / Composer)
+// ---------------------------------------------------------------------------
+
+fn packagist_for(server: &MockServer) -> Packagist {
+    Packagist::with_base_url(test_client(), server.uri())
+}
+
+fn packagist_body() -> serde_json::Value {
+    json!({
+        "results": [
+            {
+                "name": "laravel/framework",
+                "description": "The Laravel Framework.",
+                "url": "https://packagist.org/packages/laravel/framework",
+                "repository": "https://github.com/laravel/framework",
+                "downloads": 543_583_479_u64,
+                "favers": 35_281_u64
+            },
+            {
+                "name": "symfony/cache",
+                "description": "Provides extended PSR-6, PSR-16 (and tags) implementations",
+                "url": "https://packagist.org/packages/symfony/cache",
+                "repository": "https://github.com/symfony/cache",
+                "downloads": 373_170_138_u64,
+                "favers": 4_189_u64
+            }
+        ],
+        "total": 2
+    })
+}
+
+#[tokio::test]
+async fn packagist_id_is_packagist() {
+    let src = Packagist::with_base_url(reqwest::Client::new(), "https://packagist.org".to_string());
+    assert_eq!(src.id(), SourceId::Packagist);
+}
+
+#[tokio::test]
+async fn packagist_maps_results_into_matches() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(packagist_body()))
+        .mount(&server)
+        .await;
+
+    let matches = packagist_for(&server).search(&query()).await.unwrap();
+
+    assert_eq!(matches.len(), 2);
+
+    let first = &matches[0];
+    assert_eq!(first.name, "laravel/framework");
+    assert_eq!(first.source, SourceId::Packagist);
+    assert_eq!(
+        first.url,
+        "https://packagist.org/packages/laravel/framework"
+    );
+    assert_eq!(first.description, "The Laravel Framework.");
+    assert_eq!(first.popularity, Some(543_583_479));
+    assert_eq!(first.similarity, 0.0);
+
+    assert_eq!(matches[1].name, "symfony/cache");
+    assert_eq!(matches[1].popularity, Some(373_170_138));
+}
+
+#[tokio::test]
+async fn packagist_sends_joined_keywords_and_per_page() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .and(query_param("q", "async runtime"))
+        .and(query_param("per_page", "15"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(packagist_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = packagist_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+}
+
+#[tokio::test]
+async fn packagist_falls_back_to_favers_when_downloads_zero() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "results": [
+            {
+                "name": "fresh/package",
+                "description": "Brand new, no downloads yet.",
+                "url": "https://packagist.org/packages/fresh/package",
+                "downloads": 0,
+                "favers": 42
+            }
+        ],
+        "total": 1
+    });
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = packagist_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].popularity, Some(42));
+}
+
+#[tokio::test]
+async fn packagist_missing_popularity_becomes_none() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "results": [
+            {
+                "name": "obscure/pkg",
+                "description": "no counts here",
+                "url": "https://packagist.org/packages/obscure/pkg"
+            }
+        ],
+        "total": 1
+    });
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = packagist_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].popularity, None);
+}
+
+#[tokio::test]
+async fn packagist_empty_results_is_ok_not_error() {
+    let server = MockServer::start().await;
+    let body = json!({ "results": [], "total": 0 });
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = packagist_for(&server).search(&query()).await.unwrap();
+    assert!(matches.is_empty());
+}
+
+#[tokio::test]
+async fn packagist_server_error_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    let result = packagist_for(&server).search(&query()).await;
+    assert!(result.is_err(), "a 5xx response must surface as an error");
+}
+
+// ---------------------------------------------------------------------------
+// Hex (Erlang/Elixir)
+// ---------------------------------------------------------------------------
+
+fn hex_for(server: &MockServer) -> Hex {
+    Hex::with_base_url(test_client(), server.uri())
+}
+
+fn hex_body() -> serde_json::Value {
+    json!([
+        {
+            "name": "phoenix",
+            "html_url": "https://hex.pm/packages/phoenix",
+            "meta": { "description": "Productive web framework that does not compromise speed or maintainability." },
+            "downloads": { "all": 50_000_000_u64, "recent": 1_000_000_u64, "week": 250_000_u64 }
+        },
+        {
+            "name": "cachex",
+            "html_url": "https://hex.pm/packages/cachex",
+            "meta": { "description": "A powerful caching library for Elixir." },
+            "downloads": { "all": 12_345_u64 }
+        }
+    ])
+}
+
+#[tokio::test]
+async fn hex_id_is_hex() {
+    let src = Hex::with_base_url(reqwest::Client::new(), "https://hex.pm".to_string());
+    assert_eq!(src.id(), SourceId::Hex);
+}
+
+#[tokio::test]
+async fn hex_maps_packages_into_matches() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/packages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(hex_body()))
+        .mount(&server)
+        .await;
+
+    let matches = hex_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+
+    let first = &matches[0];
+    assert_eq!(first.name, "phoenix");
+    assert_eq!(first.source, SourceId::Hex);
+    assert_eq!(first.url, "https://hex.pm/packages/phoenix");
+    assert_eq!(
+        first.description,
+        "Productive web framework that does not compromise speed or maintainability."
+    );
+    assert_eq!(first.popularity, Some(50_000_000));
+    assert_eq!(first.similarity, 0.0);
+
+    assert_eq!(matches[1].name, "cachex");
+    assert_eq!(matches[1].popularity, Some(12_345));
+}
+
+#[tokio::test]
+async fn hex_sends_joined_keywords_as_search_param() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/packages"))
+        .and(query_param("search", "async runtime"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(hex_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    assert_eq!(hex_for(&server).search(&query()).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn hex_missing_description_becomes_empty() {
+    let server = MockServer::start().await;
+    let body = json!([
+        { "name": "bare", "html_url": "https://hex.pm/packages/bare", "downloads": { "all": 5 } }
+    ]);
+    Mock::given(method("GET"))
+        .and(path("/api/packages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = hex_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].description, "");
+}
+
+#[tokio::test]
+async fn hex_zero_or_missing_downloads_becomes_none_and_url_falls_back() {
+    let server = MockServer::start().await;
+    let body = json!([
+        { "name": "mystery", "meta": { "description": "no link, no downloads" }, "downloads": { "all": 0 } },
+        { "name": "ghost", "meta": { "description": "no downloads block at all" } }
+    ]);
+    Mock::given(method("GET"))
+        .and(path("/api/packages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = hex_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].popularity, None);
+    assert_eq!(matches[0].url, format!("{}/packages/mystery", server.uri()));
+    assert_eq!(matches[1].popularity, None);
+}
+
+#[tokio::test]
+async fn hex_empty_results_is_ok_not_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/packages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+
+    assert!(hex_for(&server).search(&query()).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn hex_server_error_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/packages"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    assert!(hex_for(&server).search(&query()).await.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Artifact Hub (Cloud Native package index)
+// ---------------------------------------------------------------------------
+
+fn artifacthub_for(server: &MockServer) -> ArtifactHub {
+    ArtifactHub::with_base_url(test_client(), server.uri())
+}
+
+fn artifacthub_body() -> serde_json::Value {
+    json!({
+        "packages": [
+            {
+                "name": "prometheus",
+                "description": "Prometheus monitoring system and time series database",
+                "stars": 4200,
+                "repository": {
+                    "name": "prometheus-community",
+                    "kind": 0,
+                    "url": "https://prometheus-community.github.io/helm-charts"
+                }
+            },
+            {
+                "name": "trace-dns",
+                "stars": 0,
+                "repository": {
+                    "name": "gadgets",
+                    "kind": 22,
+                    "url": "https://github.com/inspektor-gadget/inspektor-gadget"
+                }
+            }
+        ]
+    })
+}
+
+#[tokio::test]
+async fn artifacthub_id_is_artifact_hub() {
+    let src =
+        ArtifactHub::with_base_url(reqwest::Client::new(), "https://artifacthub.io".to_string());
+    assert_eq!(src.id(), SourceId::ArtifactHub);
+}
+
+#[tokio::test]
+async fn artifacthub_maps_packages_into_matches() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/packages/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(artifacthub_body()))
+        .mount(&server)
+        .await;
+
+    let matches = artifacthub_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+
+    let first = &matches[0];
+    assert_eq!(first.name, "prometheus");
+    assert_eq!(first.source, SourceId::ArtifactHub);
+    assert_eq!(
+        first.url,
+        format!(
+            "{}/packages/helm/prometheus-community/prometheus",
+            server.uri()
+        )
+    );
+    assert_eq!(
+        first.description,
+        "Prometheus monitoring system and time series database"
+    );
+    assert_eq!(first.popularity, Some(4200));
+    assert_eq!(first.similarity, 0.0);
+
+    let second = &matches[1];
+    assert_eq!(second.name, "trace-dns");
+    assert_eq!(
+        second.url,
+        format!(
+            "{}/packages/inspektor-gadget/gadgets/trace-dns",
+            server.uri()
+        )
+    );
+    assert_eq!(second.description, "");
+    assert_eq!(second.popularity, None);
+}
+
+#[tokio::test]
+async fn artifacthub_sends_joined_keywords_as_query() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/packages/search"))
+        .and(query_param("ts_query_web", "async runtime"))
+        .and(query_param("limit", "15"))
+        .and(header_exists("user-agent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(artifacthub_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    assert_eq!(
+        artifacthub_for(&server)
+            .search(&query())
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn artifacthub_unknown_kind_falls_back_to_repository_url() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "packages": [
+            {
+                "name": "future-thing",
+                "description": "kind this adapter has no slug for yet",
+                "stars": 3,
+                "repository": {
+                    "name": "some-repo",
+                    "kind": 9999,
+                    "url": "https://example.com/some-repo"
+                }
+            }
+        ]
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/v1/packages/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = artifacthub_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].url, "https://example.com/some-repo");
+}
+
+#[tokio::test]
+async fn artifacthub_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "packages": [] });
+    Mock::given(method("GET"))
+        .and(path("/api/v1/packages/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    assert!(artifacthub_for(&server)
+        .search(&query())
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn artifacthub_server_error_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/packages/search"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    assert!(artifacthub_for(&server).search(&query()).await.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// AUR (Arch User Repository, RPC v5 JSON)
+// ---------------------------------------------------------------------------
+
+fn aur_for(server: &MockServer) -> Aur {
+    Aur::with_base_url(test_client(), server.uri())
+}
+
+fn aur_body() -> serde_json::Value {
+    json!({
+        "resultcount": 2,
+        "results": [
+            {
+                "Name": "ccache",
+                "Description": "Compiler cache that speeds up recompilation",
+                "URL": "https://ccache.dev",
+                "NumVotes": 120,
+                "Popularity": 3.5,
+                "Maintainer": "someone",
+                "Version": "4.10-1"
+            },
+            {
+                "Name": "sccache-git",
+                "Description": null,
+                "URL": null,
+                "NumVotes": 0,
+                "Popularity": 0,
+                "Maintainer": null,
+                "Version": "0.8.1-1"
+            }
+        ]
+    })
+}
+
+#[tokio::test]
+async fn aur_id_is_aur() {
+    let src = Aur::with_base_url(
+        reqwest::Client::new(),
+        "https://aur.archlinux.org".to_string(),
+    );
+    assert_eq!(src.id(), SourceId::Aur);
+}
+
+#[tokio::test]
+async fn aur_maps_packages_into_matches() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(aur_body()))
+        .mount(&server)
+        .await;
+
+    let matches = aur_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+
+    let ccache = &matches[0];
+    assert_eq!(ccache.name, "ccache");
+    assert_eq!(ccache.source, SourceId::Aur);
+    assert_eq!(ccache.url, format!("{}/packages/ccache", server.uri()));
+    assert_eq!(
+        ccache.description,
+        "Compiler cache that speeds up recompilation"
+    );
+    assert_eq!(ccache.popularity, Some(120));
+    assert_eq!(ccache.similarity, 0.0);
+
+    let sccache = &matches[1];
+    assert_eq!(sccache.name, "sccache-git");
+    assert_eq!(
+        sccache.url,
+        format!("{}/packages/sccache-git", server.uri())
+    );
+    assert_eq!(sccache.description, "");
+    assert_eq!(sccache.popularity, None);
+}
+
+#[tokio::test]
+async fn aur_sends_search_query_params() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .and(query_param("v", "5"))
+        .and(query_param("type", "search"))
+        .and(query_param("arg", "async runtime"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(aur_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = aur_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+}
+
+#[tokio::test]
+async fn aur_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "resultcount": 0, "results": [] });
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    assert!(aur_for(&server).search(&query()).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn aur_server_error_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    assert!(aur_for(&server).search(&query()).await.is_err());
 }

@@ -56,6 +56,21 @@ fn prompt_contains_match_names() {
 }
 
 #[test]
+fn prompt_includes_popularity_and_urls() {
+    // #60: the model should see how popular/real each match is and where it lives,
+    // so it can weight firmly-established prior art.
+    let prompt = verdict::build_prompt(&query(), &sample_matches(), &checked());
+    assert!(
+        prompt.contains("popularity 50000"),
+        "prompt must include the match popularity figure"
+    );
+    assert!(
+        prompt.contains("https://npmjs.com/package/kill-port"),
+        "prompt must include the match URL"
+    );
+}
+
+#[test]
 fn prompt_forbids_asserting_absence() {
     let prompt = verdict::build_prompt(&query(), &sample_matches(), &checked());
     let lower = prompt.to_lowercase();

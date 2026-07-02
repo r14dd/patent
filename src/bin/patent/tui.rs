@@ -88,6 +88,10 @@ fn source_color(source: Source) -> Color {
         Source::VsCodeMarketplace => Color::Rgb(0, 122, 204),
         Source::NuGet => Color::Rgb(100, 45, 170),
         Source::Homebrew => Color::Rgb(250, 175, 5),
+        Source::Packagist => Color::Rgb(119, 123, 180),
+        Source::Hex => Color::Rgb(110, 74, 126),
+        Source::ArtifactHub => Color::Rgb(65, 117, 152),
+        Source::Aur => Color::Rgb(23, 147, 209),
     }
 }
 

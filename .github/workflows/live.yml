@@ -1,0 +1,38 @@
+name: live
+
+# Nightly smoke test against the REAL registry APIs. This is the one thing the
+# hermetic PR suite (wiremock canned responses) can't catch: an upstream API
+# silently changing its response shape, which leaves the mocked tests green while
+# the shipped tool quietly returns nothing. Deliberately NOT run on PRs — it needs
+# network and is subject to upstream rate limits and outages, so a transient red
+# here is expected noise, not a code regression.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily, 06:00 UTC
+  workflow_dispatch: # allow manual runs from the Actions tab
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  live:
+    name: live source smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `--ignored` selects the live tests (they are #[ignore]d so `cargo test`
+      # stays hermetic). `--skip live_pypi` excludes the one known break: PyPI has
+      # no keyless search API and is bot-walled (tracked for 0.7.1) — drop the skip
+      # once a working PyPI backend lands, so drift on it is caught again too.
+      - name: live smoke tests
+        run: cargo test --test live -- --ignored --skip live_pypi --nocapture

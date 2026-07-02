@@ -13,7 +13,7 @@
   <a href="https://ratatui.rs/"><img src="https://ratatui.rs/built-with-ratatui/badge.svg" alt="Built With Ratatui"></a>
 </p>
 
-`patent` takes a plain-English dev-tool idea and searches 12 sources — package registries (crates.io, npm, PyPI, Homebrew, and more) plus GitHub and Hacker News. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
+`patent` takes a plain-English dev-tool idea and searches 16 sources — package registries (crates.io, npm, PyPI, Homebrew, Packagist, Hex, and more) plus GitHub and Hacker News. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/r14dd/patent/main/showcase.gif" alt="patent demo" width="720">
@@ -23,7 +23,7 @@
 
 ## Why patent?
 
-Before you build a dev tool, `patent` checks whether it already exists. One query fans out across 12 sources at once — package registries plus GitHub and Hacker News — instead of you searching each by hand. Matches are ranked locally by *semantic* similarity (not keyword match), so close-but-differently-worded prior art still surfaces, and the verdict is scoped to what was actually found — an honest "keep looking" rather than a hallucinated "this is novel."
+Before you build a dev tool, `patent` checks whether it already exists. One query fans out across 16 sources at once — package registries plus GitHub and Hacker News — instead of you searching each by hand. Matches are ranked locally by *semantic* similarity (not keyword match), so close-but-differently-worded prior art still surfaces, and the verdict is scoped to what was actually found — an honest "keep looking" rather than a hallucinated "this is novel."
 
 ## How it works
 
@@ -101,6 +101,8 @@ api_key  = "sk-..."
 ```
 
 Precedence: CLI flag > environment variable > config file > built-in default.
+
+> **Privacy:** with `--api-base`, your search query is sent to that remote server to generate the verdict. The default local Ollama backend — and `--fast`, which skips the LLM entirely — keep everything on your machine.
 
 ## Exit codes
 

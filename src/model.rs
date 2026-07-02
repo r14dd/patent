@@ -30,6 +30,10 @@ pub enum Source {
     VsCodeMarketplace,
     NuGet,
     Homebrew,
+    Packagist,
+    Hex,
+    ArtifactHub,
+    Aur,
 }
 
 impl std::fmt::Display for Source {
@@ -47,6 +51,10 @@ impl std::fmt::Display for Source {
             Self::VsCodeMarketplace => f.write_str("VS Code"),
             Self::NuGet => f.write_str("NuGet"),
             Self::Homebrew => f.write_str("Homebrew"),
+            Self::Packagist => f.write_str("Packagist"),
+            Self::Hex => f.write_str("Hex"),
+            Self::ArtifactHub => f.write_str("Artifact Hub"),
+            Self::Aur => f.write_str("AUR"),
         }
     }
 }

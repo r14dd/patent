@@ -133,6 +133,14 @@ async fn main() -> anyhow::Result<()> {
     if args.fast && api_base.is_some() {
         eprintln!("warning: --fast skips the LLM, so api_base has no effect.");
     }
+    if let Some(base) = &api_base {
+        if !args.fast {
+            eprintln!(
+                "note: --api-base sends your search query to {base} to generate the verdict; \
+                 the default local Ollama backend and --fast keep it on your machine."
+            );
+        }
+    }
 
     let idea = match args.idea {
         Some(i) => i,
