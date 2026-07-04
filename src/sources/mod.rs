@@ -310,6 +310,17 @@ pub async fn search_all(query: &Query) -> Result<SearchOutcome> {
     Ok(search_sources(&sources_for(query)?, query).await)
 }
 
+/// Whether a failed source search is worth a second attempt. Transient failures
+/// (network blips, HTML parse drift) are; a persistently unavailable search
+/// surface ([`crate::Error::Unavailable`]) is not — a retry would hit the same
+/// wall and only add latency.
+fn is_retryable(e: &crate::Error) -> bool {
+    !matches!(
+        e,
+        crate::Error::Unavailable(_) | crate::Error::HttpClient(_)
+    )
+}
+
 /// Run `query` against `sources` concurrently, skipping any that error, and
 /// dedup the combined results. Returns the deduped matches, which sources
 /// responded successfully, and which were attempted but failed. Exposed for
@@ -319,8 +330,13 @@ pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -
         let id = s.id();
         async move {
             let first = s.search(query).await;
-            if first.is_ok() {
-                return (id, first);
+            // Return immediately on success, or on a permanent failure a retry
+            // can't fix (a walled/unavailable search surface): retrying that only
+            // burns 800ms hitting the same wall. Transient failures fall through.
+            match &first {
+                Ok(_) => return (id, first),
+                Err(e) if !is_retryable(e) => return (id, first),
+                Err(_) => {}
             }
             tokio::time::sleep(Duration::from_millis(800)).await;
             (id, s.search(query).await)

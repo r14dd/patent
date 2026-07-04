@@ -64,6 +64,15 @@ pub enum Error {
     #[error("failed to parse response: {0}")]
     Parse(String),
 
+    /// A source's search surface is genuinely, persistently unavailable — not a
+    /// transient blip but a wall a retry cannot get past (e.g. PyPI's search page
+    /// is bot-walled to non-browser clients and it has no keyless search API).
+    /// Carries accurate, user-facing wording. Distinct from [`Error::Http`] /
+    /// [`Error::Parse`] so the fan-out can skip the retry it would waste hitting
+    /// the same wall.
+    #[error("{0}")]
+    Unavailable(String),
+
     /// LLM endpoint could not be reached. The message carries the address and a hint.
     #[error("{0}")]
     LlmUnreachable(String),

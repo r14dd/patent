@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.1] - unreleased
+
+### Changed
+
+- pypi: PyPI's search failure is now surfaced accurately. Its search page is
+  bot-walled to non-browser clients (a `403`, or a `200` JS-challenge stub with
+  no results) — that now returns honest wording ("PyPI search is unavailable to
+  non-browser clients") instead of the misleading "search page structure may have
+  changed" parse error. PyPI is still reported as *not reached*, never as an
+  empty result.
+- sources: the fan-out no longer wastes its one 800ms retry on a persistently
+  unavailable source — only transient failures (network blips, HTML parse drift)
+  are retried; a walled search surface is attempted once.
+
+### Added
+
+- **Breaking (library API):** new `Error::Unavailable(String)` variant marking a
+  persistently unavailable source search surface (downstream exhaustive matches
+  on `patent::Error` must update).
+
 ## [0.7.0] - 2026-07-02
 
 ### Added

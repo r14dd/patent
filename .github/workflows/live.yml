@@ -31,8 +31,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # `--ignored` selects the live tests (they are #[ignore]d so `cargo test`
-      # stays hermetic). `--skip live_pypi` excludes the one known break: PyPI has
-      # no keyless search API and is bot-walled (tracked for 0.7.1) — drop the skip
-      # once a working PyPI backend lands, so drift on it is caught again too.
+      # stays hermetic). `--skip live_pypi` excludes PyPI: it has no keyless search
+      # API and is bot-walled, and requiring an API key was rejected as against the
+      # tool's keyless ethos — so PyPI genuinely can't return results (it fails
+      # honestly as "not reached"). Drop the skip only if a keyless backend appears.
       - name: live smoke tests
         run: cargo test --test live -- --ignored --skip live_pypi --nocapture

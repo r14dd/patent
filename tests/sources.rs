@@ -640,6 +640,47 @@ async fn pypi_server_error_is_propagated() {
     assert!(pypi_for(&server).search(&query()).await.is_err());
 }
 
+#[tokio::test]
+async fn pypi_forbidden_is_unavailable() {
+    // A hard 403 from the bot wall must surface as Unavailable (non-retryable),
+    // not a generic HTTP error, so the reason is accurate and the retry is skipped.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search/"))
+        .respond_with(ResponseTemplate::new(403))
+        .mount(&server)
+        .await;
+
+    let err = pypi_for(&server).search(&query()).await.unwrap_err();
+    assert!(
+        matches!(err, patent::Error::Unavailable(_)),
+        "403 bot wall should be Error::Unavailable, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn pypi_bot_wall_200_challenge_is_unavailable() {
+    // The live wall serves a 200 whose body is a JS challenge stub: a non-trivial
+    // page (>2000 bytes) with zero package snippets. That must read as Unavailable
+    // (the real cause), not the misleading "markup may have changed" parse error.
+    let server = MockServer::start().await;
+    let stub = format!(
+        "<!doctype html><html><head><title>Client Challenge</title></head><body>{}</body></html>",
+        "x".repeat(2_500)
+    );
+    Mock::given(method("GET"))
+        .and(path("/search/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(stub))
+        .mount(&server)
+        .await;
+
+    let err = pypi_for(&server).search(&query()).await.unwrap_err();
+    assert!(
+        matches!(err, patent::Error::Unavailable(_)),
+        "200 challenge stub should be Error::Unavailable, got: {err:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Hacker News (Algolia)
 // ---------------------------------------------------------------------------
@@ -920,6 +961,61 @@ async fn search_sources_empty_when_all_fail() {
     assert!(matches.is_empty());
     assert!(reached.is_empty());
     assert_eq!(failed.len(), 2, "both failing sources must be reported");
+}
+
+/// A source that counts how many times it is searched and always fails with the
+/// error its constructor is given — used to pin the fan-out's retry policy.
+struct CountingSource {
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    err: fn() -> patent::Error,
+}
+
+#[async_trait::async_trait]
+impl SourceAdapter for CountingSource {
+    fn id(&self) -> SourceId {
+        SourceId::PyPI
+    }
+    async fn search(&self, _query: &Query) -> patent::Result<Vec<Match>> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err((self.err)())
+    }
+}
+
+#[tokio::test]
+async fn unavailable_source_is_not_retried_but_transient_is() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    // A persistently-unavailable source (a walled search) must be attempted
+    // exactly once — retrying only burns 800ms on the same wall.
+    let unavailable_calls = Arc::new(AtomicUsize::new(0));
+    let unavailable = CountingSource {
+        calls: unavailable_calls.clone(),
+        err: || patent::Error::Unavailable("walled".to_string()),
+    };
+
+    // A transient failure (parse drift, network blip) must still be retried once.
+    let transient_calls = Arc::new(AtomicUsize::new(0));
+    let transient = CountingSource {
+        calls: transient_calls.clone(),
+        err: || patent::Error::Parse("transient".to_string()),
+    };
+
+    let sources: Vec<Box<dyn SourceAdapter>> = vec![Box::new(unavailable), Box::new(transient)];
+    let SearchOutcome { failed, .. } = search_sources(&sources, &query()).await;
+
+    assert_eq!(
+        unavailable_calls.load(Ordering::SeqCst),
+        1,
+        "an Unavailable source must not be retried"
+    );
+    assert_eq!(
+        transient_calls.load(Ordering::SeqCst),
+        2,
+        "a transient failure must be retried exactly once"
+    );
+    // Both still land in `failed` — best-effort, never fatal.
+    assert_eq!(failed.len(), 2);
 }
 
 // ---------------------------------------------------------------------------

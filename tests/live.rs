@@ -127,16 +127,19 @@ live!(
     &["react"]
 );
 
-// KNOWN BREAK — tracked for 0.7.1. PyPI has retired every keyless search path:
-// the XML-RPC `search` endpoint is gone, and the web search page now sits behind a
-// Fastly "Client Challenge" bot wall that serves a JS stub to any non-browser
-// client (verified: identical challenge for a descriptive UA and a browser UA).
-// So this smoke test fails by design today; the nightly workflow skips it with
-// `--skip live_pypi`. It is kept rather than deleted so restoring PyPI in 0.7.1 is
-// just: swap in a working backend, then drop the `--skip`. Until then the binary
-// honestly surfaces PyPI as "not reached" at runtime — never as an empty result.
+// KNOWN, ACCEPTED DEGRADATION — not a pending fix. PyPI has retired every keyless
+// search path: the XML-RPC `search` endpoint is gone, and the web search page now
+// sits behind a Fastly "Client Challenge" bot wall that serves a JS stub to any
+// non-browser client (verified: identical challenge for a descriptive UA and a
+// browser UA). The only remaining programmatic search needs an API key, which was
+// deliberately rejected as against this tool's keyless, no-friction ethos. So PyPI
+// genuinely cannot return results and this smoke test cannot pass; the nightly
+// skips it with `--skip live_pypi`. As of 0.7.1 the adapter fails *honestly* —
+// `Error::Unavailable` with accurate wording — so the binary surfaces PyPI as
+// "not reached", never as an empty result. Kept (not deleted) so that if a keyless
+// backend ever appears, restoring it is just: swap it in, then drop the `--skip`.
 #[tokio::test]
-#[ignore = "live network; also a KNOWN BREAK — PyPI is bot-walled, see comment (0.7.1)"]
+#[ignore = "live network; also an ACCEPTED DEGRADATION — PyPI is bot-walled with no keyless search, see comment"]
 async fn live_pypi() {
     let adapter = PyPI::new(client());
     let matches = adapter
