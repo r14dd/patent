@@ -1,6 +1,25 @@
 # Changelog
 
-## [0.7.1] - unreleased
+## [0.8.0] - 2026-07-07
+
+### Added
+
+- New source: **Hackage** (Haskell) — searches the package archive and
+  batch-fetches cabal files for synopsis/homepage (#40). 17 sources total
+- `--keyword-only` flag: rank by keyword overlap instead of semantic similarity,
+  skipping the ~80 MB embedding model download entirely (#30)
+- Shared search→rank→verdict pipeline (`pipeline.rs`) used by both CLI and TUI,
+  fixing TUI bugs (missing relevance gate, wrong eval limit) (#63)
+- Stable `--json` output: `schema_version` field, `Source`/`Saturation` serialize
+  to kebab-case/lowercase with backward-compatible aliases (#61)
+- Per-source 15 s wall-clock timeout prevents a single slow source from blocking
+  the entire fan-out (#33)
+- Homebrew source caches formula.json/cask.json in memory — repeated searches
+  in the TUI reuse the catalog instead of re-downloading ~10 MB (#45)
+- dist: Homebrew tap installer (`brew install r14dd/patent/patent`) and
+  PowerShell installer for Windows (#35)
+- dist: Windows prebuilt binary (`x86_64-pc-windows-msvc`) — ort 2.0 ships
+  MSVC prebuilts, removing the linking blocker (#36)
 
 ### Changed
 
@@ -14,11 +33,12 @@
   unavailable source — only transient failures (network blips, HTML parse drift)
   are retried; a walled search surface is attempted once.
 
-### Added
+### Breaking (library API)
 
-- **Breaking (library API):** new `Error::Unavailable(String)` variant marking a
-  persistently unavailable source search surface (downstream exhaustive matches
-  on `patent::Error` must update).
+- New `Error::Unavailable(String)` variant (downstream exhaustive matches on
+  `patent::Error` must update)
+- `Source` enum gained `Hackage` variant
+- `rank::rank_by_keywords` added to the public API
 
 ## [0.7.0] - 2026-07-02
 
