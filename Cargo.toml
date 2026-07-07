@@ -6,6 +6,7 @@ rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "A prior-art search for your code ideas — has this dev tool already been shipped?"
 repository = "https://github.com/r14dd/patent"
+homepage = "https://github.com/r14dd/patent"
 documentation = "https://docs.rs/patent"
 authors = ["Riad Mukhtarov"]
 readme = "README.md"
