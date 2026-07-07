@@ -26,7 +26,14 @@ jobs:
             exit 0
           fi
           # No --no-verify: keep the pre-publish build/package check before the
-          # immutable crates.io upload.
-          cargo publish
+          # immutable crates.io upload. Tolerate "already exists" — a re-tagged
+          # release hitting a version published on a previous tag push.
+          output=$(cargo publish 2>&1) && exit 0
+          if echo "$output" | grep -q "already exists"; then
+            echo "patent $version already on crates.io (confirmed by cargo publish)."
+            exit 0
+          fi
+          echo "$output"
+          exit 1
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
