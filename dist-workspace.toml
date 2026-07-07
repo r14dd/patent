@@ -10,12 +10,14 @@ ci = "github"
 # Read release notes from CHANGELOG.md
 changelog = "CHANGELOG.md"
 # The installers to generate for each app
-installers = ["shell"]
+installers = ["shell", "powershell", "homebrew"]
+# GitHub repo that hosts the Homebrew tap (create with `gh repo create homebrew-patent`)
+tap = "r14dd/homebrew-patent"
+publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax).
-# Intel macOS and Windows are omitted: the onnxruntime build pulled in by
-# fastembed has no Intel-macOS prebuilt and fails to link on MSVC. Those
-# platforms install via `cargo install patent`.
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+# Intel macOS is omitted: ort-sys has no Intel-macOS prebuilt; those users
+# install via `cargo install patent` with a local onnxruntime.
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 
 # Build the Linux targets on a newer image: the onnxruntime prebuilt needs
 # glibc >= 2.38, which the default image is too old for.

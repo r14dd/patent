@@ -2,14 +2,12 @@
 
 mod cli;
 mod config;
+mod pipeline;
 mod tui;
 
 use clap::{CommandFactory, Parser};
 use cli::Cli;
 use std::io::IsTerminal;
-
-/// Matches below this similarity are noise, not signal.
-const MIN_RELEVANCE: f32 = 0.35;
 
 fn validate_idea(idea: &str) -> anyhow::Result<()> {
     let trimmed = idea.trim();
@@ -156,6 +154,7 @@ async fn main() -> anyhow::Result<()> {
                 api_key,
                 model,
                 fast: args.fast,
+                keyword_only: args.keyword_only,
             })
             .await;
         }
@@ -166,133 +165,28 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("Searching for prior art: \"{}\"", idea);
     eprintln!("   keywords: {}", query.keywords.join(", "));
 
-    // First-run friendliness: the ~80 MB embedding model downloads the first
-    // time we rank. Say so up front so the wait doesn't read as a hang before
-    // fastembed's own progress bar appears.
-    if !patent::rank::model_is_cached() {
+    if !args.keyword_only && !patent::rank::model_is_cached() {
         eprintln!(
             "patent: downloading the embedding model for local semantic search (~80 MB, one-time)..."
         );
     }
 
-    // ── Phase 1: search sources AND load embedding model concurrently ───
     let t_start = std::time::Instant::now();
-    let idea_for_embed = query.idea.clone();
-    let (search_result, ranker_result) = tokio::join!(
-        patent::sources::search_all(&query),
-        tokio::task::spawn_blocking(move || {
-            let mut ranker = patent::rank::Ranker::new()?;
-            let query_emb = ranker.embed_query(&idea_for_embed)?;
-            Ok::<_, patent::Error>((ranker, query_emb))
-        })
-    );
-
-    let patent::sources::SearchOutcome {
-        matches: raw_matches,
-        reached,
-        failed,
-    } = search_result?;
-    let (mut ranker, query_emb) =
-        ranker_result.map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))??;
-
-    eprintln!(
-        "   {} matches from {} sources in {:.1}s: {}",
-        raw_matches.len(),
-        reached.len(),
-        t_start.elapsed().as_secs_f64(),
-        reached
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-
-    // ── Phase 2: rank (embed descriptions + cosine sort) ────────────────
-    let t_rank = std::time::Instant::now();
-    let limit = args.limit as usize;
-    // Rank with max(limit, DEFAULT_LIMIT) so floor_level and the verdict prompt
-    // see enough data to make an accurate call even when --limit is small.
-    // The result is truncated to `limit` for display after the verdict is built.
-    let eval_limit = limit.max(patent::rank::DEFAULT_LIMIT);
-    let ranked =
-        tokio::task::spawn_blocking(move || ranker.rank_with(&query_emb, raw_matches, eval_limit))
-            .await
-            .map_err(|e| anyhow::anyhow!("ranking task panicked: {e}"))??;
-    eprintln!(
-        "Ranked to top {} in {:.1}s",
-        ranked.len(),
-        t_rank.elapsed().as_secs_f64(),
-    );
-
-    // ── Phase 3: relevance gate + verdict ───────────────────────────────
-    // A verdict shown without an AI judgement still carries the integrity
-    // caveat and the full sources-checked / not-reached transparency.
-    let fallback_verdict = |headline: &str| patent::Verdict {
-        level: patent::Saturation::Open,
-        headline: headline.to_string(),
-        gaps: vec![],
-        sources_checked: reached.clone(),
-        sources_failed: failed.clone(),
-        caveat: patent::verdict::CAVEAT.to_string(),
-    };
-
-    let best_sim = ranked.first().map_or(0.0, |m| m.similarity);
-    let verdict = if args.fast {
-        // --fast: no model warm-up, no inference wait. The level is floored
-        // from the similarity data (still honest, still carries the caveat).
-        eprintln!("--fast: skipping the LLM (verdict from similarity data only)");
-        patent::verdict::from_data(&ranked, reached.clone(), failed.clone())
-    } else if best_sim < MIN_RELEVANCE {
-        eprintln!(
-            "warning: best similarity {:.2} < {:.2} — skipping verdict",
-            best_sim, MIN_RELEVANCE,
-        );
-        fallback_verdict(
-            "Nothing relevant turned up in the sources checked. \
-             The query may not describe a recognized software tool — \
-             try rephrasing with specific technical terms.",
-        )
-    } else {
-        // api_base without model already errored up front, so None here means
-        // the local Ollama default.
-        let model = model
-            .clone()
-            .unwrap_or_else(|| patent::ollama::DEFAULT_MODEL.to_string());
-
-        let llm: Box<dyn patent::Llm> = match &api_base {
-            Some(base) => Box::new(patent::openai::OpenAi::new(
-                base.clone(),
-                model.clone(),
-                api_key.clone(),
-            )?),
-            None => Box::new(patent::ollama::Ollama::new(
-                patent::ollama::DEFAULT_ENDPOINT,
-                model.clone(),
-            )?),
-        };
-
-        let t_verdict = std::time::Instant::now();
-        eprintln!("Generating verdict via {} ({})...", llm.label(), model);
-        match patent::verdict::assess(&*llm, &query, &ranked, reached.clone(), failed.clone()).await
-        {
-            Ok(v) => {
-                eprintln!("   verdict in {:.1}s", t_verdict.elapsed().as_secs_f64());
-                v
-            }
-            // Best-effort: any backend or parse failure degrades to a search-only
-            // result rather than aborting the run.
-            Err(e) => {
-                eprintln!("warning: {e}");
-                eprintln!("   showing results without an AI verdict.");
-                fallback_verdict(
-                    "Verdict unavailable — results are ranked by semantic similarity only.",
-                )
-            }
-        }
-    };
-
-    // Truncate to the user-requested display limit now that the verdict is done.
-    let ranked: Vec<_> = ranked.into_iter().take(limit).collect();
+    let result = pipeline::run(
+        &idea,
+        &pipeline::PipelineCfg {
+            api_base: api_base.clone(),
+            api_key: api_key.clone(),
+            model: model.clone(),
+            fast: args.fast,
+            keyword_only: args.keyword_only,
+            limit: args.limit as usize,
+        },
+        |msg| eprintln!("{msg}"),
+    )
+    .await?;
+    let verdict = result.verdict;
+    let ranked = result.matches;
 
     eprintln!("total: {:.1}s", t_start.elapsed().as_secs_f64());
 
@@ -308,11 +202,19 @@ async fn main() -> anyhow::Result<()> {
                 "note: stdout is not a terminal — emitting JSON (pass --json to silence this)."
             );
         }
-        let output = serde_json::json!({
-            "query": idea,
-            "verdict": verdict,
-            "matches": ranked,
-        });
+        #[derive(serde::Serialize)]
+        struct Output {
+            schema_version: u32,
+            query: String,
+            verdict: patent::Verdict,
+            matches: Vec<patent::Match>,
+        }
+        let output = Output {
+            schema_version: 1,
+            query: idea.clone(),
+            verdict,
+            matches: ranked,
+        };
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         tui::run_with_results(
@@ -324,6 +226,7 @@ async fn main() -> anyhow::Result<()> {
                 api_key,
                 model,
                 fast: args.fast,
+                keyword_only: args.keyword_only,
             },
         )
         .await?;

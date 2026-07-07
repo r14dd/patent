@@ -16,24 +16,46 @@ pub struct Query {
 }
 
 /// Where a [`Match`] came from. Always surfaced to the user for transparency.
+///
+/// Serializes to stable kebab-case identifiers (e.g. `"crates-io"`, not the Rust
+/// variant name). Old PascalCase names are accepted on deserialization for backward
+/// compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Source {
+    #[serde(rename = "crates-io", alias = "CratesIo")]
     CratesIo,
+    #[serde(rename = "github", alias = "GitHub")]
     GitHub,
+    #[serde(rename = "npm", alias = "Npm")]
     Npm,
+    #[serde(rename = "pypi", alias = "PyPI")]
     PyPI,
+    #[serde(rename = "hacker-news", alias = "HackerNews")]
     HackerNews,
+    #[serde(rename = "go", alias = "Go")]
     Go,
+    #[serde(rename = "maven", alias = "Maven")]
     Maven,
+    #[serde(rename = "rubygems", alias = "RubyGems")]
     RubyGems,
+    #[serde(rename = "docker-hub", alias = "DockerHub")]
     DockerHub,
+    #[serde(rename = "vscode-marketplace", alias = "VsCodeMarketplace")]
     VsCodeMarketplace,
+    #[serde(rename = "nuget", alias = "NuGet")]
     NuGet,
+    #[serde(rename = "homebrew", alias = "Homebrew")]
     Homebrew,
+    #[serde(rename = "packagist", alias = "Packagist")]
     Packagist,
+    #[serde(rename = "hex", alias = "Hex")]
     Hex,
+    #[serde(rename = "artifact-hub", alias = "ArtifactHub")]
     ArtifactHub,
+    #[serde(rename = "aur", alias = "Aur")]
     Aur,
+    #[serde(rename = "hackage", alias = "Hackage")]
+    Hackage,
 }
 
 impl std::fmt::Display for Source {
@@ -55,6 +77,7 @@ impl std::fmt::Display for Source {
             Self::Hex => f.write_str("Hex"),
             Self::ArtifactHub => f.write_str("Artifact Hub"),
             Self::Aur => f.write_str("AUR"),
+            Self::Hackage => f.write_str("Hackage"),
         }
     }
 }
@@ -78,13 +101,20 @@ pub struct Match {
 /// Ordered `Open < Crowded < Saturated` so the verdict level can be *floored*
 /// against the similarity data (the model is never allowed to under-rate a
 /// space that the embeddings show is clearly populated).
+///
+/// Serializes to lowercase (`"open"`, `"crowded"`, `"saturated"`). Old PascalCase
+/// names are accepted on deserialization for backward compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Saturation {
     /// 🟢 nothing close found in the sources checked.
+    #[serde(alias = "Open")]
     Open,
     /// 🟡 a few adjacent things exist.
+    #[serde(alias = "Crowded")]
     Crowded,
     /// 🔴 the space is densely populated.
+    #[serde(alias = "Saturated")]
     Saturated,
 }
 

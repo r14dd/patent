@@ -151,6 +151,33 @@ impl Ranker {
     }
 }
 
+/// Rank matches by keyword overlap: each match is scored by the fraction of
+/// query keywords found in its name or description. Skips the embedding model
+/// entirely — no download, no ONNX runtime, instant results.
+pub fn rank_by_keywords(query: &Query, mut matches: Vec<Match>, limit: usize) -> Vec<Match> {
+    if matches.is_empty() || query.keywords.is_empty() {
+        matches.truncate(limit);
+        return matches;
+    }
+    let kw_lower: Vec<String> = query.keywords.iter().map(|k| k.to_lowercase()).collect();
+    for m in &mut matches {
+        let text = format!("{} {}", m.name, m.description).to_lowercase();
+        let hits = kw_lower
+            .iter()
+            .filter(|kw| text.contains(kw.as_str()))
+            .count();
+        m.similarity = hits as f32 / kw_lower.len() as f32;
+    }
+    matches.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    matches.retain(|m| m.similarity > 0.0);
+    matches.truncate(limit);
+    matches
+}
+
 /// Convenience wrapper: load model, embed, rank in one call.
 ///
 /// **Blocking.** This runs synchronous, CPU-bound `fastembed` work (and may

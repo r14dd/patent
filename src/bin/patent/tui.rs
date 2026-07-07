@@ -46,6 +46,7 @@ pub struct TuiCfg {
     pub api_key: Option<String>,
     pub model: Option<String>,
     pub fast: bool,
+    pub keyword_only: bool,
 }
 
 fn level_icon(level: Saturation) -> &'static str {
@@ -92,6 +93,7 @@ fn source_color(source: Source) -> Color {
         Source::Hex => Color::Rgb(110, 74, 126),
         Source::ArtifactHub => Color::Rgb(65, 117, 152),
         Source::Aur => Color::Rgb(23, 147, 209),
+        Source::Hackage => Color::Rgb(94, 80, 134),
     }
 }
 
@@ -1145,61 +1147,23 @@ async fn run_search_pipeline(
 }
 
 async fn execute_pipeline(idea: String, cfg: TuiCfg) -> anyhow::Result<SearchResult> {
-    let query = crate::build_query(&idea);
-
-    let idea_for_embed = query.idea.clone();
-    let (search_result, ranker_result) = tokio::join!(
-        patent::sources::search_all(&query),
-        tokio::task::spawn_blocking(move || {
-            let mut ranker = patent::rank::Ranker::new()?;
-            let query_emb = ranker.embed_query(&idea_for_embed)?;
-            Ok::<_, patent::Error>((ranker, query_emb))
-        })
-    );
-
-    let patent::sources::SearchOutcome {
-        matches: raw_matches,
-        reached,
-        failed,
-    } = search_result?;
-    let (mut ranker, query_emb) =
-        ranker_result.map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))??;
-
-    let ranked = tokio::task::spawn_blocking(move || {
-        ranker.rank_with(&query_emb, raw_matches, patent::rank::DEFAULT_LIMIT)
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("ranking task panicked: {e}"))??;
-
-    let verdict = if cfg.fast {
-        patent::verdict::from_data(&ranked, reached, failed)
-    } else {
-        let model_name = cfg
-            .model
-            .clone()
-            .unwrap_or_else(|| patent::ollama::DEFAULT_MODEL.to_string());
-        let llm: Box<dyn patent::Llm> = match &cfg.api_base {
-            Some(base) => Box::new(patent::openai::OpenAi::new(
-                base.clone(),
-                model_name.clone(),
-                cfg.api_key.clone(),
-            )?),
-            None => Box::new(patent::ollama::Ollama::new(
-                patent::ollama::DEFAULT_ENDPOINT,
-                model_name,
-            )?),
-        };
-        match patent::verdict::assess(&*llm, &query, &ranked, reached.clone(), failed.clone()).await
-        {
-            Ok(v) => v,
-            Err(_) => patent::verdict::from_data(&ranked, reached, failed),
-        }
-    };
-
+    let result = crate::pipeline::run(
+        &idea,
+        &crate::pipeline::PipelineCfg {
+            api_base: cfg.api_base,
+            api_key: cfg.api_key,
+            model: cfg.model,
+            fast: cfg.fast,
+            keyword_only: cfg.keyword_only,
+            limit: patent::rank::DEFAULT_LIMIT,
+        },
+        |_| {},
+    )
+    .await?;
     Ok(SearchResult {
         idea,
-        verdict,
-        matches: ranked,
+        verdict: result.verdict,
+        matches: result.matches,
     })
 }
 

@@ -32,6 +32,11 @@ pub struct Cli {
     #[arg(long, value_name = "KEY", env = "PATENT_API_KEY")]
     pub api_key: Option<String>,
 
+    /// Skip the embedding model and rank by keyword overlap instead.
+    /// Useful offline or to avoid the ~80 MB model download.
+    #[arg(long)]
+    pub keyword_only: bool,
+
     /// Skip the LLM verdict for an instant, search-only result.
     #[arg(long)]
     pub fast: bool,

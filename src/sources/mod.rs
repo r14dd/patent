@@ -19,6 +19,7 @@ pub mod crates_io;
 pub mod docker_hub;
 pub mod github;
 pub mod go;
+pub mod hackage;
 pub mod hacker_news;
 pub mod hex;
 pub mod homebrew;
@@ -145,6 +146,9 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     }
     if idea_contains(idea, &["arch", "aur", "pacman", "archlinux"]) {
         s.insert(S::Aur);
+    }
+    if idea_contains(idea, &["haskell", "cabal", "hackage", "ghc", "stack"]) {
+        s.insert(S::Hackage);
     }
 
     if idea_contains(
@@ -281,6 +285,7 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
         S::Hex => Box::new(hex::Hex::new(client)),
         S::ArtifactHub => Box::new(artifacthub::ArtifactHub::new(client)),
         S::Aur => Box::new(aur::Aur::new(client)),
+        S::Hackage => Box::new(hackage::Hackage::new(client)),
     }
 }
 
@@ -321,6 +326,11 @@ fn is_retryable(e: &crate::Error) -> bool {
     )
 }
 
+/// Per-source wall-clock timeout. Generous enough for the HTTP timeout (10 s)
+/// plus the 800 ms retry delay plus a second attempt, but prevents a single slow
+/// source from holding up the entire fan-out indefinitely.
+const SOURCE_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// Run `query` against `sources` concurrently, skipping any that error, and
 /// dedup the combined results. Returns the deduped matches, which sources
 /// responded successfully, and which were attempted but failed. Exposed for
@@ -329,17 +339,21 @@ pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -
     let results = join_all(sources.iter().map(|s| {
         let id = s.id();
         async move {
-            let first = s.search(query).await;
-            // Return immediately on success, or on a permanent failure a retry
-            // can't fix (a walled/unavailable search surface): retrying that only
-            // burns 800ms hitting the same wall. Transient failures fall through.
-            match &first {
-                Ok(_) => return (id, first),
-                Err(e) if !is_retryable(e) => return (id, first),
-                Err(_) => {}
+            let outcome = tokio::time::timeout(SOURCE_TIMEOUT, async {
+                let first = s.search(query).await;
+                match &first {
+                    Ok(_) => return (id, first),
+                    Err(e) if !is_retryable(e) => return (id, first),
+                    Err(_) => {}
+                }
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                (id, s.search(query).await)
+            })
+            .await;
+            match outcome {
+                Ok(r) => r,
+                Err(_) => (id, Err(crate::Error::Parse(format!("{id} timed out")))),
             }
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            (id, s.search(query).await)
         }
     }))
     .await;
@@ -446,6 +460,7 @@ mod tests {
             "an elixir phoenix library for caching",
             "a helm chart to deploy a kubernetes operator",
             "a pacman helper for installing arch linux aur packages",
+            "a haskell cabal library for parsing",
             "anything at all with no signal",
         ];
         let mut seen: HashSet<S> = HashSet::new();
@@ -469,6 +484,7 @@ mod tests {
             S::Hex,
             S::ArtifactHub,
             S::Aur,
+            S::Hackage,
         ] {
             assert!(
                 seen.contains(&variant),
