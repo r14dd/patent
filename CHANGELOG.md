@@ -18,8 +18,9 @@
   in the TUI reuse the catalog instead of re-downloading ~10 MB (#45)
 - dist: Homebrew tap installer (`brew install r14dd/patent/patent`) and
   PowerShell installer for Windows (#35)
-- dist: Windows prebuilt binary (`x86_64-pc-windows-msvc`) — ort 2.0 ships
-  MSVC prebuilts, removing the linking blocker (#36)
+- ~~dist: Windows prebuilt binary~~ — reverted; ort-sys static linking still
+  has 43 unresolved MSVC externals. Windows users install via
+  `cargo install patent` (#36)
 
 ### Changed
 
