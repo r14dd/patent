@@ -16,6 +16,7 @@ use patent::sources::hacker_news::HackerNews;
 use patent::sources::hex::Hex;
 use patent::sources::homebrew::Homebrew;
 use patent::sources::maven::Maven;
+use patent::sources::nixpkgs::Nixpkgs;
 use patent::sources::npm::Npm;
 use patent::sources::nuget::NuGet;
 use patent::sources::packagist::Packagist;
@@ -25,7 +26,10 @@ use patent::sources::vscode::VsCodeMarketplace;
 use patent::sources::{dedup, search_sources, SearchOutcome, SourceAdapter};
 use reqwest::Client;
 use serde_json::json;
-use wiremock::matchers::{header_exists, method, path, query_param, query_param_is_missing};
+use std::time::Duration;
+use wiremock::matchers::{
+    header_exists, method, path, path_regex, query_param, query_param_is_missing,
+};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn test_client() -> reqwest::Client {
@@ -1066,6 +1070,68 @@ async fn unavailable_source_is_not_retried_but_transient_is() {
     assert_eq!(failed.len(), 2);
 }
 
+#[tokio::test]
+async fn transient_failure_recovers_on_retry() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/crates"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(two_crate_body()))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/crates"))
+        .respond_with(ResponseTemplate::new(500))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    let sources: Vec<Box<dyn SourceAdapter>> = vec![Box::new(CratesIo::with_base_url(
+        reqwest::Client::new(),
+        server.uri(),
+    ))];
+
+    let SearchOutcome {
+        matches,
+        reached,
+        failed,
+    } = search_sources(&sources, &query()).await;
+
+    assert_eq!(matches.len(), 2);
+    assert_eq!(reached, vec![SourceId::CratesIo]);
+    assert!(failed.is_empty());
+}
+
+#[tokio::test]
+async fn hanging_source_times_out() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/crates"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(two_crate_body())
+                .set_delay(Duration::from_secs(20)),
+        )
+        .mount(&server)
+        .await;
+
+    let sources: Vec<Box<dyn SourceAdapter>> = vec![Box::new(CratesIo::with_base_url(
+        reqwest::Client::new(),
+        server.uri(),
+    ))];
+
+    let SearchOutcome {
+        matches,
+        reached,
+        failed,
+    } = search_sources(&sources, &query()).await;
+
+    assert!(matches.is_empty());
+    assert!(reached.is_empty());
+    assert_eq!(failed, vec![SourceId::CratesIo]);
+}
+
 // ---------------------------------------------------------------------------
 // Go (pkg.go.dev HTML scrape)
 // ---------------------------------------------------------------------------
@@ -1119,6 +1185,20 @@ async fn go_server_error_is_propagated() {
 
     let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
     assert!(src.search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn go_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let html = "<!doctype html><html><body><p>No results.</p></body></html>";
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(html))
+        .mount(&server)
+        .await;
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.unwrap().is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -1208,6 +1288,20 @@ async fn maven_server_error_is_propagated() {
     assert!(src.search(&query()).await.is_err());
 }
 
+#[tokio::test]
+async fn maven_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "response": { "docs": [] } });
+    Mock::given(method("GET"))
+        .and(path("/solrsearch/select"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let src = Maven::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.unwrap().is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // NuGet (.NET)
 // ---------------------------------------------------------------------------
@@ -1266,6 +1360,20 @@ async fn nuget_server_error_is_propagated() {
     assert!(src.search(&query()).await.is_err());
 }
 
+#[tokio::test]
+async fn nuget_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "data": [] });
+    Mock::given(method("GET"))
+        .and(path("/query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let src = NuGet::with_search_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.unwrap().is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // RubyGems
 // ---------------------------------------------------------------------------
@@ -1320,6 +1428,19 @@ async fn rubygems_server_error_is_propagated() {
     assert!(src.search(&query()).await.is_err());
 }
 
+#[tokio::test]
+async fn rubygems_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/search.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+
+    let src = RubyGems::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.unwrap().is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // Docker Hub
 // ---------------------------------------------------------------------------
@@ -1370,6 +1491,20 @@ async fn docker_hub_server_error_is_propagated() {
 
     let src = DockerHub::with_base_url(reqwest::Client::new(), server.uri());
     assert!(src.search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn docker_hub_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "results": [] });
+    Mock::given(method("GET"))
+        .and(path("/v2/search/repositories/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let src = DockerHub::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.unwrap().is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -1432,6 +1567,20 @@ async fn vscode_server_error_is_propagated() {
 
     let src = VsCodeMarketplace::with_base_url(reqwest::Client::new(), server.uri());
     assert!(src.search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn vscode_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "results": [{ "extensions": [] }] });
+    Mock::given(method("POST"))
+        .and(path("/_apis/public/gallery/extensionquery"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let src = VsCodeMarketplace::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.unwrap().is_empty());
 }
 
 //homebrew
@@ -2111,4 +2260,122 @@ async fn aur_server_error_is_propagated() {
         .await;
 
     assert!(aur_for(&server).search(&query()).await.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Nixpkgs (NixOS Elasticsearch)
+// ---------------------------------------------------------------------------
+
+fn nixpkgs_for(server: &MockServer) -> Nixpkgs {
+    Nixpkgs::with_base_url(reqwest::Client::new(), server.uri())
+}
+
+fn nixpkgs_body() -> serde_json::Value {
+    json!({
+        "hits": {
+            "hits": [
+                {
+                    "_source": {
+                        "package_attr_name": "ripgrep",
+                        "package_pname": "ripgrep",
+                        "package_description": "A utility that combines the usability of The Silver Searcher with the raw speed of grep",
+                        "package_homepage": ["https://github.com/BurntSushi/ripgrep"],
+                        "package_pversion": "14.1.0"
+                    }
+                },
+                {
+                    "_source": {
+                        "package_attr_name": "fd",
+                        "package_pname": "fd",
+                        "package_description": "A simple, fast and user-friendly alternative to find",
+                        "package_homepage": ["https://github.com/sharkdp/fd"],
+                        "package_pversion": "10.2.0"
+                    }
+                }
+            ]
+        }
+    })
+}
+
+#[tokio::test]
+async fn nixpkgs_id_is_nixpkgs() {
+    let src = Nixpkgs::with_base_url(
+        reqwest::Client::new(),
+        "https://search.nixos.org".to_string(),
+    );
+    assert_eq!(src.id(), SourceId::Nixpkgs);
+}
+
+#[tokio::test]
+async fn nixpkgs_search_returns_matches() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(nixpkgs_body()))
+        .mount(&server)
+        .await;
+
+    let matches = nixpkgs_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+
+    let first = &matches[0];
+    assert_eq!(first.name, "ripgrep (v14.1.0)");
+    assert_eq!(first.source, SourceId::Nixpkgs);
+    assert_eq!(first.url, "https://github.com/BurntSushi/ripgrep");
+    assert_eq!(
+        first.description,
+        "A utility that combines the usability of The Silver Searcher with the raw speed of grep"
+    );
+    assert_eq!(first.popularity, None);
+    assert_eq!(first.similarity, 0.0);
+
+    let second = &matches[1];
+    assert_eq!(second.name, "fd (v10.2.0)");
+    assert_eq!(second.url, "https://github.com/sharkdp/fd");
+    assert_eq!(
+        second.description,
+        "A simple, fast and user-friendly alternative to find"
+    );
+}
+
+#[tokio::test]
+async fn nixpkgs_empty_results() {
+    let server = MockServer::start().await;
+    let body = json!({ "hits": { "hits": [] } });
+    Mock::given(method("POST"))
+        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = nixpkgs_for(&server).search(&query()).await.unwrap();
+    assert!(matches.is_empty());
+}
+
+#[tokio::test]
+async fn nixpkgs_server_error_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    assert!(nixpkgs_for(&server).search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn nixpkgs_malformed_body_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&server)
+        .await;
+
+    let result = nixpkgs_for(&server).search(&query()).await;
+    assert!(
+        result.is_err(),
+        "an unparseable body must surface as an error"
+    );
 }

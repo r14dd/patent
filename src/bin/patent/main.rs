@@ -104,6 +104,38 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if args.list_sources {
+        for s in patent::Source::all() {
+            println!("{:<22} {}", s.kebab_name(), s);
+        }
+        return Ok(());
+    }
+
+    let sources_include: Option<std::collections::HashSet<patent::Source>> =
+        if args.sources.is_empty() {
+            None
+        } else {
+            let mut set = std::collections::HashSet::new();
+            for name in &args.sources {
+                set.insert(
+                    name.parse::<patent::Source>()
+                        .map_err(|e| anyhow::anyhow!(e))?,
+                );
+            }
+            Some(set)
+        };
+
+    let sources_exclude: std::collections::HashSet<patent::Source> = {
+        let mut set = std::collections::HashSet::new();
+        for name in &args.exclude {
+            set.insert(
+                name.parse::<patent::Source>()
+                    .map_err(|e| anyhow::anyhow!(e))?,
+            );
+        }
+        set
+    };
+
     // Load config and resolve backend settings before the no-idea check so the
     // interactive TUI gets the configured LLM backend when no idea is on the CLI.
     let cfg = config::load()?;
@@ -155,6 +187,8 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 fast: args.fast,
                 keyword_only: args.keyword_only,
+                sources_include: sources_include.clone(),
+                sources_exclude: sources_exclude.clone(),
             })
             .await;
         }
@@ -171,20 +205,27 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let pipeline_cfg = pipeline::PipelineCfg {
+        api_base: api_base.clone(),
+        api_key: api_key.clone(),
+        model: model.clone(),
+        fast: args.fast || args.print_prompt,
+        keyword_only: args.keyword_only,
+        limit: args.limit as usize,
+        sources_include: sources_include.clone(),
+        sources_exclude: sources_exclude.clone(),
+    };
+
     let t_start = std::time::Instant::now();
-    let result = pipeline::run(
-        &idea,
-        &pipeline::PipelineCfg {
-            api_base: api_base.clone(),
-            api_key: api_key.clone(),
-            model: model.clone(),
-            fast: args.fast,
-            keyword_only: args.keyword_only,
-            limit: args.limit as usize,
-        },
-        |msg| eprintln!("{msg}"),
-    )
-    .await?;
+    let result = pipeline::run(&idea, &pipeline_cfg, |msg| eprintln!("{msg}")).await?;
+
+    if args.print_prompt {
+        let prompt =
+            patent::verdict::build_prompt(&query, &result.matches, &result.verdict.sources_checked);
+        print!("{prompt}");
+        return Ok(());
+    }
+
     let verdict = result.verdict;
     let ranked = result.matches;
 
@@ -227,6 +268,8 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 fast: args.fast,
                 keyword_only: args.keyword_only,
+                sources_include,
+                sources_exclude,
             },
         )
         .await?;

@@ -47,6 +47,8 @@ pub struct TuiCfg {
     pub model: Option<String>,
     pub fast: bool,
     pub keyword_only: bool,
+    pub sources_include: Option<std::collections::HashSet<patent::Source>>,
+    pub sources_exclude: std::collections::HashSet<patent::Source>,
 }
 
 fn level_icon(level: Saturation) -> &'static str {
@@ -94,6 +96,7 @@ fn source_color(source: Source) -> Color {
         Source::ArtifactHub => Color::Rgb(65, 117, 152),
         Source::Aur => Color::Rgb(23, 147, 209),
         Source::Hackage => Color::Rgb(94, 80, 134),
+        Source::Nixpkgs => Color::Rgb(126, 186, 228),
     }
 }
 
@@ -1156,6 +1159,8 @@ async fn execute_pipeline(idea: String, cfg: TuiCfg) -> anyhow::Result<SearchRes
             fast: cfg.fast,
             keyword_only: cfg.keyword_only,
             limit: patent::rank::DEFAULT_LIMIT,
+            sources_include: cfg.sources_include,
+            sources_exclude: cfg.sources_exclude,
         },
         |_| {},
     )

@@ -41,6 +41,23 @@ pub struct Cli {
     #[arg(long)]
     pub fast: bool,
 
+    /// Only search these sources (comma-separated, e.g. "npm,crates-io,github").
+    /// Overrides the automatic source detection. See --list-sources for valid names.
+    #[arg(long, value_delimiter = ',', value_name = "LIST")]
+    pub sources: Vec<String>,
+
+    /// Exclude these sources from the search (comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "LIST")]
+    pub exclude: Vec<String>,
+
+    /// Print the verdict prompt to stdout and exit (for BYO-agent workflows).
+    #[arg(long)]
+    pub print_prompt: bool,
+
+    /// List all available source names and exit.
+    #[arg(long)]
+    pub list_sources: bool,
+
     /// Print structured JSON instead of launching the TUI.
     #[arg(long)]
     pub json: bool,

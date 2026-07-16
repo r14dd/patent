@@ -27,6 +27,7 @@ use patent::sources::crates_io::CratesIo;
 use patent::sources::docker_hub::DockerHub;
 use patent::sources::github::GitHub;
 use patent::sources::go::GoPkgDev;
+use patent::sources::hackage::Hackage;
 use patent::sources::hacker_news::HackerNews;
 use patent::sources::hex::Hex;
 use patent::sources::homebrew::Homebrew;
@@ -243,4 +244,12 @@ live!(
     SourceId::Aur,
     "an aur helper",
     &["yay"]
+);
+
+live!(
+    live_hackage,
+    Hackage::new(client()),
+    SourceId::Hackage,
+    "a haskell json parsing library",
+    &["json"]
 );

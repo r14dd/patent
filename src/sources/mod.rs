@@ -24,6 +24,7 @@ pub mod hacker_news;
 pub mod hex;
 pub mod homebrew;
 pub mod maven;
+pub mod nixpkgs;
 pub mod npm;
 pub mod nuget;
 pub mod packagist;
@@ -149,6 +150,9 @@ fn detect_sources(idea: &str) -> HashSet<S> {
     }
     if idea_contains(idea, &["haskell", "cabal", "hackage", "ghc", "stack"]) {
         s.insert(S::Hackage);
+    }
+    if idea_contains(idea, &["nix", "nixos", "nixpkgs", "flake"]) {
+        s.insert(S::Nixpkgs);
     }
 
     if idea_contains(
@@ -286,6 +290,7 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
         S::ArtifactHub => Box::new(artifacthub::ArtifactHub::new(client)),
         S::Aur => Box::new(aur::Aur::new(client)),
         S::Hackage => Box::new(hackage::Hackage::new(client)),
+        S::Nixpkgs => Box::new(nixpkgs::Nixpkgs::new(client)),
     }
 }
 
@@ -313,6 +318,31 @@ pub struct SearchOutcome {
 /// source failures are non-fatal and surfaced via [`SearchOutcome::failed`].
 pub async fn search_all(query: &Query) -> Result<SearchOutcome> {
     Ok(search_sources(&sources_for(query)?, query).await)
+}
+
+/// Like [`search_all`], but with explicit control over which sources to use.
+///
+/// When `include` is `Some`, only those sources are searched (overriding the
+/// auto-detection heuristic). When `None`, auto-detection runs as usual.
+/// Sources in `exclude` are removed from the final set either way.
+pub async fn search_filtered(
+    query: &Query,
+    include: Option<&std::collections::HashSet<crate::model::Source>>,
+    exclude: &std::collections::HashSet<crate::model::Source>,
+) -> Result<SearchOutcome> {
+    let client = http_client()?;
+    let mut ids = match include {
+        Some(set) => set.clone(),
+        None => detect_sources(&query.idea),
+    };
+    for ex in exclude {
+        ids.remove(ex);
+    }
+    let sources: Vec<Box<dyn SourceAdapter>> = ids
+        .into_iter()
+        .map(|id| build_source(id, client.clone()))
+        .collect();
+    Ok(search_sources(&sources, query).await)
 }
 
 /// Whether a failed source search is worth a second attempt. Transient failures
@@ -461,6 +491,7 @@ mod tests {
             "a helm chart to deploy a kubernetes operator",
             "a pacman helper for installing arch linux aur packages",
             "a haskell cabal library for parsing",
+            "a nix flake for building containers",
             "anything at all with no signal",
         ];
         let mut seen: HashSet<S> = HashSet::new();
@@ -485,6 +516,7 @@ mod tests {
             S::ArtifactHub,
             S::Aur,
             S::Hackage,
+            S::Nixpkgs,
         ] {
             assert!(
                 seen.contains(&variant),
@@ -532,6 +564,28 @@ mod tests {
         assert!(s.contains(&S::Npm));
         assert!(s.contains(&S::PyPI));
         assert!(s.contains(&S::CratesIo));
+    }
+
+    #[test]
+    fn from_str_parses_known_sources() {
+        assert_eq!("npm".parse::<crate::model::Source>().unwrap(), S::Npm);
+        assert_eq!(
+            "crates-io".parse::<crate::model::Source>().unwrap(),
+            S::CratesIo
+        );
+        assert_eq!(
+            "docker".parse::<crate::model::Source>().unwrap(),
+            S::DockerHub
+        );
+        assert_eq!(
+            "vscode".parse::<crate::model::Source>().unwrap(),
+            S::VsCodeMarketplace
+        );
+        assert_eq!("nix".parse::<crate::model::Source>().unwrap(), S::Nixpkgs);
+        assert!(
+            "unknown".parse::<crate::model::Source>().is_err(),
+            "an unrecognised source name must return Err"
+        );
     }
 
     #[test]

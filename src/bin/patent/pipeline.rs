@@ -13,6 +13,8 @@ pub struct PipelineCfg {
     pub fast: bool,
     pub keyword_only: bool,
     pub limit: usize,
+    pub sources_include: Option<std::collections::HashSet<patent::Source>>,
+    pub sources_exclude: std::collections::HashSet<patent::Source>,
 }
 
 pub struct PipelineResult {
@@ -31,8 +33,19 @@ pub async fn run(
     let t_start = std::time::Instant::now();
     let eval_limit = cfg.limit.max(patent::rank::DEFAULT_LIMIT);
 
+    let has_filter = cfg.sources_include.is_some() || !cfg.sources_exclude.is_empty();
+
     let (search_result, ranked) = if cfg.keyword_only {
-        let search_result = patent::sources::search_all(&query).await;
+        let search_result = if has_filter {
+            patent::sources::search_filtered(
+                &query,
+                cfg.sources_include.as_ref(),
+                &cfg.sources_exclude,
+            )
+            .await
+        } else {
+            patent::sources::search_all(&query).await
+        };
         let patent::sources::SearchOutcome {
             matches: raw_matches,
             reached,
@@ -61,7 +74,18 @@ pub async fn run(
     } else {
         let idea_for_embed = query.idea.clone();
         let (search_result, ranker_result) = tokio::join!(
-            patent::sources::search_all(&query),
+            async {
+                if has_filter {
+                    patent::sources::search_filtered(
+                        &query,
+                        cfg.sources_include.as_ref(),
+                        &cfg.sources_exclude,
+                    )
+                    .await
+                } else {
+                    patent::sources::search_all(&query).await
+                }
+            },
             tokio::task::spawn_blocking(move || {
                 let mut ranker = patent::rank::Ranker::new()?;
                 let query_emb = ranker.embed_query(&idea_for_embed)?;

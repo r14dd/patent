@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.0] - 2026-07-16
+
+### Added
+
+- New source: **Nixpkgs** (NixOS/Nix) — searches the NixOS package index via
+  its Elasticsearch backend. 18 sources total
+- `--sources` flag: restrict search to a comma-separated list of sources
+  (e.g. `--sources npm,pypi,crates-io`)
+- `--exclude` flag: skip specific sources from the search fan-out
+  (e.g. `--exclude hacker-news,maven`)
+- `--list-sources` flag: print every known source and exit
+- `--print-prompt` flag: run the search pipeline in fast mode and print the
+  raw LLM prompt to stdout (useful for piping into other models)
+- `Source::FromStr` implementation with human-friendly aliases (`docker` for
+  docker-hub, `brew` for homebrew, `nix` for nixpkgs, `vscode` for
+  vscode-marketplace, etc.)
+- Library API: `sources::search_filtered()` for explicit include/exclude
+  source control
+- Library API: `Source::all()` and `Source::kebab_name()` for programmatic
+  source enumeration
+
+### Breaking (library API)
+
+- `Source` enum gained `Nixpkgs` variant
+- New public functions on `Source`: `all()`, `kebab_name()`, `FromStr` impl
+
 ## [0.8.0] - 2026-07-07
 
 ### Added

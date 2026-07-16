@@ -8,6 +8,7 @@
 use crate::llm::Llm;
 
 /// Client for an OpenAI-compatible chat endpoint.
+#[derive(Debug, Clone)]
 pub struct OpenAi {
     base: String,
     model: String,

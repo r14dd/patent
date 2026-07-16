@@ -56,6 +56,89 @@ pub enum Source {
     Aur,
     #[serde(rename = "hackage", alias = "Hackage")]
     Hackage,
+    #[serde(rename = "nixpkgs", alias = "Nixpkgs")]
+    Nixpkgs,
+}
+
+impl Source {
+    /// Every known source, in a stable order.
+    pub fn all() -> &'static [Source] {
+        &[
+            Self::CratesIo,
+            Self::GitHub,
+            Self::Npm,
+            Self::PyPI,
+            Self::HackerNews,
+            Self::Go,
+            Self::Maven,
+            Self::RubyGems,
+            Self::DockerHub,
+            Self::VsCodeMarketplace,
+            Self::NuGet,
+            Self::Homebrew,
+            Self::Packagist,
+            Self::Hex,
+            Self::ArtifactHub,
+            Self::Aur,
+            Self::Hackage,
+            Self::Nixpkgs,
+        ]
+    }
+
+    /// The kebab-case name used in `--sources` / `--exclude` and `--json`.
+    pub fn kebab_name(self) -> &'static str {
+        match self {
+            Self::CratesIo => "crates-io",
+            Self::GitHub => "github",
+            Self::Npm => "npm",
+            Self::PyPI => "pypi",
+            Self::HackerNews => "hacker-news",
+            Self::Go => "go",
+            Self::Maven => "maven",
+            Self::RubyGems => "rubygems",
+            Self::DockerHub => "docker-hub",
+            Self::VsCodeMarketplace => "vscode-marketplace",
+            Self::NuGet => "nuget",
+            Self::Homebrew => "homebrew",
+            Self::Packagist => "packagist",
+            Self::Hex => "hex",
+            Self::ArtifactHub => "artifact-hub",
+            Self::Aur => "aur",
+            Self::Hackage => "hackage",
+            Self::Nixpkgs => "nixpkgs",
+        }
+    }
+}
+
+impl std::str::FromStr for Source {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "crates-io" | "crates_io" | "crates.io" => Ok(Self::CratesIo),
+            "github" => Ok(Self::GitHub),
+            "npm" => Ok(Self::Npm),
+            "pypi" => Ok(Self::PyPI),
+            "hacker-news" | "hacker_news" | "hackernews" => Ok(Self::HackerNews),
+            "go" => Ok(Self::Go),
+            "maven" => Ok(Self::Maven),
+            "rubygems" => Ok(Self::RubyGems),
+            "docker-hub" | "docker_hub" | "dockerhub" | "docker" => Ok(Self::DockerHub),
+            "vscode-marketplace" | "vscode_marketplace" | "vscode" => Ok(Self::VsCodeMarketplace),
+            "nuget" => Ok(Self::NuGet),
+            "homebrew" | "brew" => Ok(Self::Homebrew),
+            "packagist" => Ok(Self::Packagist),
+            "hex" => Ok(Self::Hex),
+            "artifact-hub" | "artifact_hub" | "artifacthub" => Ok(Self::ArtifactHub),
+            "aur" => Ok(Self::Aur),
+            "hackage" => Ok(Self::Hackage),
+            "nixpkgs" | "nix" => Ok(Self::Nixpkgs),
+            _ => {
+                let valid: Vec<&str> = Self::all().iter().map(|s| s.kebab_name()).collect();
+                Err(format!("unknown source `{s}`. Valid: {}", valid.join(", ")))
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for Source {
@@ -78,6 +161,7 @@ impl std::fmt::Display for Source {
             Self::ArtifactHub => f.write_str("Artifact Hub"),
             Self::Aur => f.write_str("AUR"),
             Self::Hackage => f.write_str("Hackage"),
+            Self::Nixpkgs => f.write_str("Nixpkgs"),
         }
     }
 }
@@ -160,6 +244,11 @@ pub struct Verdict {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_all_returns_every_variant() {
+        assert_eq!(Source::all().len(), 18);
+    }
 
     #[test]
     fn exit_code_graduated() {
