@@ -378,6 +378,22 @@ async fn github_server_error_is_propagated() {
 }
 
 #[tokio::test]
+async fn github_malformed_body_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&server)
+        .await;
+
+    let result = github_for(&server).search(&query()).await;
+    assert!(
+        result.is_err(),
+        "an unparseable body must surface as an error"
+    );
+}
+
+#[tokio::test]
 async fn github_401_with_token_returns_auth_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -535,6 +551,22 @@ async fn npm_server_error_is_propagated() {
         .await;
 
     assert!(npm_for(&server).search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn npm_malformed_body_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/-/v1/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&server)
+        .await;
+
+    let result = npm_for(&server).search(&query()).await;
+    assert!(
+        result.is_err(),
+        "an unparseable body must surface as an error"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -790,6 +822,22 @@ async fn hn_server_error_is_propagated() {
         .await;
 
     assert!(hn_for(&server).search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn hn_malformed_body_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&server)
+        .await;
+
+    let result = hn_for(&server).search(&query()).await;
+    assert!(
+        result.is_err(),
+        "an unparseable body must surface as an error"
+    );
 }
 
 #[tokio::test]
