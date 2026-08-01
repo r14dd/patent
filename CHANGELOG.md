@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Nixpkgs returned nothing at all in 0.9.0.** The adapter sent no
+  `Authorization` header, but the `search.nixos.org` Elasticsearch backend
+  rejects anonymous callers, so every query failed with `401` and the source
+  was always reported "not reached". It now sends the read-only credentials
+  that `search.nixos.org` ships to browsers
+- Nixpkgs queried index generation `latest-42-…`, which upstream has since
+  deleted — that path `404`s even with valid credentials. Pinned to a live
+  generation and pulled out into a named constant
+- Nixpkgs matched nothing for any multi-word idea. Its Elasticsearch query was
+  copied from the `search.nixos.org` frontend, where the input is a one- or
+  two-word search box, and kept that frontend's `"operator": "and"` — so every
+  extracted keyword had to match a single package. Now `"or"`, casting wide and
+  leaving precision to the local ranker like every other source. Without this,
+  fixing the `401` alone would have been the worse bug: a source reported as
+  *reached* that always returns nothing reads as "no prior art" rather than
+  being surfaced as "not reached"
+
+### Added
+
+- `live_nixpkgs` smoke test. Nixpkgs was the only source with no live-network
+  coverage, which is why the failures above shipped behind a green suite — the
+  mocked tests stub out the auth wall and the index name alike
+- `live_nixpkgs_multi_keyword` smoke test, sending the kind of keyword list the
+  real pipeline emits — a single-keyword probe passes even when the query is
+  conjunctive, so it cannot catch the empty-results failure on its own
+- A hermetic `nixpkgs_sends_authorization_header` test, so dropping the auth
+  fails in PR CI instead of waiting for the nightly live run
+
 ## [0.9.0] - 2026-07-16
 
 ### Added

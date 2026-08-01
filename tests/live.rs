@@ -32,6 +32,7 @@ use patent::sources::hacker_news::HackerNews;
 use patent::sources::hex::Hex;
 use patent::sources::homebrew::Homebrew;
 use patent::sources::maven::Maven;
+use patent::sources::nixpkgs::Nixpkgs;
 use patent::sources::npm::Npm;
 use patent::sources::nuget::NuGet;
 use patent::sources::packagist::Packagist;
@@ -252,4 +253,32 @@ live!(
     SourceId::Hackage,
     "a haskell json parsing library",
     &["json"]
+);
+
+// Guards two things a mocked test structurally cannot: that the Elasticsearch
+// backend still accepts our credentials (it 401s anonymous callers), and that
+// the index generation baked into the URL still exists (upstream deletes old
+// generations, which then 404). Both shipped broken in 0.9.0 behind a green
+// mocked suite. `ripgrep` is a single, very stable attr name, so an empty result
+// here means adapter drift and nothing else.
+live!(
+    live_nixpkgs,
+    Nixpkgs::new(client()),
+    SourceId::Nixpkgs,
+    "a fast recursive grep replacement",
+    &["ripgrep"]
+);
+
+// The single-keyword test above cannot catch the *other* way this source shipped
+// broken: with the frontend's `operator: "and"`, every keyword had to match one
+// package, so a realistic multi-word idea matched nothing while `ripgrep` alone
+// still passed. This one sends the kind of keyword list the real pipeline emits —
+// no single package is expected to be all of these things, so it goes empty again
+// the moment the query turns conjunctive.
+live!(
+    live_nixpkgs_multi_keyword,
+    Nixpkgs::new(client()),
+    SourceId::Nixpkgs,
+    "a nix flake tool for managing developer shells",
+    &["nix", "flake", "developer", "shell", "manager"]
 );

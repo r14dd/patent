@@ -13,6 +13,20 @@ const DEFAULT_BASE_URL: &str = "https://search.nixos.org";
 const CHANNEL: &str = "unstable";
 const MAX_RESULTS: usize = 20;
 
+/// The backend is not open to anonymous clients — it rejects unauthenticated
+/// requests with `401`. These are the read-only credentials that
+/// `search.nixos.org` itself ships to every browser that loads the page (they
+/// are checked into the public `NixOS/nixos-search` repository); they are not a
+/// secret and grant nothing beyond the same public query access.
+const ES_USER: &str = "aWVSALXpZv";
+const ES_PASSWORD: &str = "X8gPHnzL52wFEekuxsfQ9cSh";
+
+/// Index names embed a schema generation that upstream bumps whenever the
+/// document mapping changes; the old index is then deleted and requests for it
+/// 404. It therefore has to be updated periodically — `live_nixpkgs` in
+/// `tests/live.rs` is what catches the rot, since a mocked test cannot.
+const INDEX_GENERATION: u32 = 50;
+
 /// Searches the NixOS package index.
 #[derive(Debug, Clone)]
 pub struct Nixpkgs {
@@ -55,6 +69,15 @@ struct EsPackage {
     package_pversion: Option<String>,
 }
 
+/// The query DSL below is lifted from the `search.nixos.org` frontend, which
+/// feeds it a one- or two-word search box. This tool feeds it a whole extracted
+/// keyword list instead, so the frontend's `"operator": "and"` — every term must
+/// match one package — made realistic multi-word ideas return nothing at all.
+/// It is `"or"` here deliberately: casting wide and letting `rank.rs` sink the
+/// loose hits is the same trade every other source makes (Hex returns 100 rows,
+/// AUR and GitHub ~50). A *reached* source that is always empty is worse than a
+/// failing one — it feeds a falsely-clean verdict instead of being surfaced as
+/// "not reached".
 fn build_es_query(terms: &str, size: usize) -> serde_json::Value {
     serde_json::json!({
         "from": 0,
@@ -69,7 +92,7 @@ fn build_es_query(terms: &str, size: usize) -> serde_json::Value {
                         "query": terms,
                         "analyzer": "whitespace",
                         "auto_generate_synonyms_phrase_query": false,
-                        "operator": "and",
+                        "operator": "or",
                         "fields": [
                             "package_attr_name^9",
                             "package_pname^6",
@@ -92,8 +115,8 @@ impl SourceAdapter for Nixpkgs {
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let q = query.keywords.join(" ");
         let url = format!(
-            "{}/backend/latest-42-nixos-{}/_search",
-            self.base_url, CHANNEL
+            "{}/backend/latest-{}-nixos-{}/_search",
+            self.base_url, INDEX_GENERATION, CHANNEL
         );
 
         let body = build_es_query(&q, MAX_RESULTS);
@@ -101,6 +124,7 @@ impl SourceAdapter for Nixpkgs {
         let resp: EsResponse = self
             .client
             .post(&url)
+            .basic_auth(ES_USER, Some(ES_PASSWORD))
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .json(&body)
             .send()

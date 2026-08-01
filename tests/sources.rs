@@ -2310,7 +2310,7 @@ async fn nixpkgs_id_is_nixpkgs() {
 async fn nixpkgs_search_returns_matches() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .and(path_regex(r"/backend/latest-\d+-nixos-.*/_search"))
         .respond_with(ResponseTemplate::new(200).set_body_json(nixpkgs_body()))
         .mount(&server)
         .await;
@@ -2338,12 +2338,34 @@ async fn nixpkgs_search_returns_matches() {
     );
 }
 
+// The backend 401s anonymous callers, so a request without this header returns
+// nothing at all — the failure that shipped in 0.9.0. The mock only asserts the
+// header is present, not its value: `live_nixpkgs` is what proves the
+// credentials are still accepted. This exists so dropping `.basic_auth(..)`
+// fails in PR CI rather than waiting for the nightly live run.
+#[tokio::test]
+async fn nixpkgs_sends_authorization_header() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path_regex(r"/backend/latest-\d+-nixos-.*/_search"))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(nixpkgs_body()))
+        .mount(&server)
+        .await;
+
+    let matches = nixpkgs_for(&server)
+        .search(&query())
+        .await
+        .expect("request without an Authorization header did not match the mock");
+    assert_eq!(matches.len(), 2);
+}
+
 #[tokio::test]
 async fn nixpkgs_empty_results() {
     let server = MockServer::start().await;
     let body = json!({ "hits": { "hits": [] } });
     Mock::given(method("POST"))
-        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .and(path_regex(r"/backend/latest-\d+-nixos-.*/_search"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .mount(&server)
         .await;
@@ -2356,7 +2378,7 @@ async fn nixpkgs_empty_results() {
 async fn nixpkgs_server_error_is_propagated() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .and(path_regex(r"/backend/latest-\d+-nixos-.*/_search"))
         .respond_with(ResponseTemplate::new(500))
         .mount(&server)
         .await;
@@ -2368,7 +2390,7 @@ async fn nixpkgs_server_error_is_propagated() {
 async fn nixpkgs_malformed_body_is_propagated() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path_regex("/backend/latest-42-nixos-.*/_search"))
+        .and(path_regex(r"/backend/latest-\d+-nixos-.*/_search"))
         .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
         .mount(&server)
         .await;
