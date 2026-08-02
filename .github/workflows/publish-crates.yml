@@ -19,18 +19,33 @@ jobs:
       - name: Publish
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+
+          # crates.io answers 403 to requests without a User-Agent (its API
+          # data-access policy), so one is mandatory. Without it every check
+          # below reads as "not published" and the guard silently does nothing.
+          # Insist on 200: a 403 or a network blip is "unknown", not "absent".
+          published() {
+            [ "$(curl -sS -o /dev/null -w '%{http_code}' \
+                   -H 'User-Agent: patent-release (github.com/r14dd/patent)' \
+                   "https://crates.io/api/v1/crates/patent/$version")" = "200" ]
+          }
+
           # Idempotent on a robust signal (the crates.io API), not a substring of
           # cargo's stderr: skip cleanly if this exact version is already live.
-          if curl -fsS "https://crates.io/api/v1/crates/patent/$version" >/dev/null 2>&1; then
+          if published; then
             echo "patent $version is already on crates.io — skipping."
             exit 0
           fi
           # No --no-verify: keep the pre-publish build/package check before the
-          # immutable crates.io upload. Tolerate "already exists" — a re-tagged
-          # release hitting a version published on a previous tag push.
+          # immutable crates.io upload.
           output=$(cargo publish 2>&1) && exit 0
-          if echo "$output" | grep -q "already exists"; then
-            echo "patent $version already on crates.io (confirmed by cargo publish)."
+          # The check above can lose a race: a maintainer publishing locally from
+          # the same tag lands the upload during this job's verify+upload window.
+          # Re-check the API first; fall back to cargo's wording only if the API
+          # is unreachable — and match what the registry actually says, which is
+          # "already uploaded", not "already exists".
+          if published || echo "$output" | grep -qE "already (uploaded|exists)"; then
+            echo "patent $version is on crates.io — published elsewhere while this job ran."
             exit 0
           fi
           echo "$output"
