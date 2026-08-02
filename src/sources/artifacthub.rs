@@ -7,12 +7,13 @@
 //!
 //! A package's stable web URL is `…/packages/{kind}/{repo}/{name}`, where
 //! `{kind}` is a slug (e.g. `helm`, `olm`, `krew`) — but the API only exposes a
-//! numeric `repository.kind`, so [`kind_slug`] maps the number to the slug used
+//! numeric `repository.kind`, so `kind_slug` maps the number to the slug used
 //! in the path.
 
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -55,6 +56,9 @@ struct PackageHit {
     /// Stargazers on Artifact Hub itself; used as the popularity signal.
     #[serde(default)]
     stars: Option<u64>,
+    /// Publish time of this package version, as epoch **seconds**.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    ts: Option<i64>,
     repository: Repository,
 }
 
@@ -155,6 +159,7 @@ impl SourceAdapter for ArtifactHub {
                     // meaningful popularity signal.
                     popularity: p.stars.filter(|&s| s > 0),
                     similarity: 0.0,
+                    last_updated: p.ts.and_then(freshness::from_unix_secs),
                 }
             })
             .collect())

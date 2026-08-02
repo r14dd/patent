@@ -9,6 +9,7 @@
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -52,6 +53,13 @@ struct PackageHit {
     description: Option<String>,
     #[serde(rename = "NumVotes", default)]
     num_votes: Option<u64>,
+    /// Last change to the package's AUR entry, as epoch **seconds**.
+    #[serde(
+        rename = "LastModified",
+        default,
+        deserialize_with = "crate::freshness::lenient"
+    )]
+    last_modified: Option<i64>,
 }
 
 #[async_trait::async_trait]
@@ -86,6 +94,7 @@ impl SourceAdapter for Aur {
                 // (or absent) votes carries no signal, so it maps to None.
                 popularity: p.num_votes.filter(|&v| v > 0),
                 similarity: 0.0,
+                last_updated: p.last_modified.and_then(freshness::from_unix_secs),
             })
             .collect())
     }

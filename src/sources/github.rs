@@ -4,6 +4,7 @@
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -63,6 +64,10 @@ struct Repo {
     html_url: String,
     #[serde(default)]
     stargazers_count: Option<u64>,
+    /// Last push to any branch. Preferred over `updated_at`, which also moves
+    /// on metadata-only events like a star or a description edit.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    pushed_at: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -122,6 +127,7 @@ impl SourceAdapter for GitHub {
                 description: r.description.unwrap_or_default(),
                 popularity: r.stargazers_count,
                 similarity: 0.0,
+                last_updated: r.pushed_at.as_deref().and_then(freshness::from_rfc3339),
             })
             .collect())
     }

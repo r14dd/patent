@@ -1,6 +1,88 @@
 # Changelog
 
-## [0.9.1]
+## [0.10.0] - 2026-08-02
+
+### Added
+
+- **Maintenance signal on matches.** Where a source publishes a last-updated
+  date, matches now carry one. The detail view reads `updated 3 years ago`, and
+  anything untouched for two years or more is flagged `⚑` in the results table
+  — flagged, never demoted: an unmaintained tool that exists is still prior art,
+  so it keeps its rank and only gains a marker
+- 8 of the 18 sources report a date in the same search response the adapter
+  already fetches, so nothing costs an extra request: crates.io (`updated_at`),
+  npm (`package.date`), GitHub (`pushed_at`), Hex (`updated_at`), Maven
+  (`timestamp`), AUR (`LastModified`), Artifact Hub (`ts`), and pkg.go.dev
+  (scraped from its rendered publication date). The remaining sources publish
+  no date in their search results, and fetching one per match would mean a
+  request per row that the per-source timeout has no room for; those matches
+  show no date at all, which is *not* a claim that they are stale — unless
+  another source returned the same URL, in which case dedup fills the gap and
+  the row shows that source's date (see Fixed, below). Hacker News
+  is left blank deliberately — it exposes when a thread was posted, which says
+  nothing about whether the thing discussed is still maintained.
+  `src/sources/mod.rs` carries the full table, so the gaps read as decided
+  rather than unfinished
+- `--json` output gained a `last_updated` key on every match: a whole-second
+  RFC 3339 UTC timestamp, or `null` where the source reports none.
+  `schema_version` stays `1` — the change is purely additive, so existing
+  consumers keep working untouched
+- The LLM prompt now shows each match's age, with explicit guidance to treat it
+  as colour on the prior art and never as a reason to discount it: a tool that
+  exists but looks unmaintained is still proof the idea has been built, and an
+  absent date is not evidence of staleness
+- `patent::freshness`: normalises every registry's date format — RFC 3339 at
+  any sub-second precision, epoch seconds, epoch milliseconds, and
+  pkg.go.dev's rendered `Feb 28, 2026` — to one canonical shape, then turns it
+  into a display label and a staleness flag. Every constructor returns `Option`
+  rather than `Result`, so a registry that changes its date format degrades
+  that match to "no date known" instead of taking the whole source down. Date
+  fields are also deserialised leniently: a value whose *type* changed upstream
+  would otherwise abort the entire response and put the source dark
+- The `⚑` marker is documented in the TUI help overlay (`?`) and in the README
+
+### Changed
+
+- The absence-claim scrubber now also catches absence dressed up as
+  maintenance. Showing the model dates opens a second way to make the one claim
+  this tool must never make — not "nothing exists" but "no actively maintained
+  tool exists", which is just as unprovable: only 8 of the 18 sources publish a
+  date at all, so an undated match is not an unmaintained one. Such headlines
+  and gaps are now replaced or dropped like any other absence claim, and hedges
+  ("no *currently* maintained tool") no longer walk one past the filter. Saying
+  a *specific* match looks unmaintained is untouched — that is read straight off
+  the data shown, and is the whole point of the signal
+- Ranking is deliberately left similarity-only; recency is **not** blended into
+  the score. `verdict.rs` derives the saturation floor from the similarity
+  data, so deflating similarity for age would quietly weaken the integrity
+  guard itself and let a well-trodden space read as "Open". Age belongs in the
+  output, where a human and the model can weigh it — the rationale is recorded
+  on `rank::score_sort_limit` so it is not silently undone later
+
+### Fixed
+
+- Dedup no longer discards what a duplicate knew. When two sources return the
+  same URL — routinely, since 35% of Homebrew formulae have a homepage
+  byte-identical to a GitHub repo URL — only the first arrival survived, and the
+  fan-out iterates a `HashSet`, so which one that is is randomised per process.
+  The same query really did show a last-updated date and a star count on one run
+  and neither on the next. The kept match now fills its empty `last_updated` and
+  `popularity` from the duplicates behind it; identity, ordering and every field
+  it already had are untouched. This predates the maintenance signal — recency
+  is simply the first field where losing the race became visible. `last_updated`
+  and `popularity` are the whole of it: they are the only optional fields on
+  `Match`. Which source is *credited* for a shared URL still varies per run, so
+  the name and description shown are still whichever source won the race — that
+  is untouched here, and no data is lost to it
+
+### Breaking (library API)
+
+- `Match` gained a public `last_updated: Option<String>` field. `Match` has no
+  `Default` impl, so downstream code that constructs one with a struct literal
+  must add `last_updated: None`. Reading and matching on existing fields is
+  unaffected
+
+## [0.9.1] - 2026-08-02
 
 ### Fixed
 

@@ -7,6 +7,7 @@
 use scraper::{Html, Selector};
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::{Error, Result};
 
@@ -58,6 +59,11 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
         Selector::parse("a[href]").map_err(|e| Error::Parse(format!("bad selector: {e}")))?;
     let synopsis = Selector::parse(".SearchSnippet-synopsis")
         .map_err(|e| Error::Parse(format!("bad selector: {e}")))?;
+    // The only source whose date is scraped rather than read from an API field.
+    // A missing or reworded element just leaves `last_updated` empty — unlike
+    // the name/URL parse above, it never counts as drift worth failing over.
+    let published = Selector::parse("[data-test-id='snippet-published']")
+        .map_err(|e| Error::Parse(format!("bad selector: {e}")))?;
 
     let document = Html::parse_document(html);
     let mut matches = Vec::new();
@@ -85,6 +91,13 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
             format!("{base_url}{href}")
         };
 
+        // Rendered as a human date, e.g. "Feb 28, 2026".
+        let last_updated = element
+            .select(&published)
+            .next()
+            .map(|s| s.text().collect::<String>())
+            .and_then(|s| freshness::from_go_date(&s));
+
         matches.push(Match {
             name,
             source: Source::Go,
@@ -92,6 +105,7 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
             description: desc,
             popularity: None,
             similarity: 0.0,
+            last_updated,
         });
 
         if matches.len() >= 20 {

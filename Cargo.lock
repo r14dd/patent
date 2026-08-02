@@ -2674,7 +2674,7 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "patent"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2692,6 +2692,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tokio-test",
  "toml",

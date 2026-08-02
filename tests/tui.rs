@@ -22,6 +22,7 @@ fn matches() -> Vec<Match> {
             description: "Kill process on a port".into(),
             popularity: Some(50_000),
             similarity: 0.85,
+            last_updated: None,
         },
         Match {
             name: "fkill-cli".into(),
@@ -30,6 +31,7 @@ fn matches() -> Vec<Match> {
             description: "Fabulously kill processes".into(),
             popularity: Some(10_000),
             similarity: 0.72,
+            last_updated: None,
         },
         Match {
             name: "port-killer".into(),
@@ -38,6 +40,7 @@ fn matches() -> Vec<Match> {
             description: "Rust port killer utility".into(),
             popularity: Some(500),
             similarity: 0.60,
+            last_updated: None,
         },
     ]
 }
@@ -420,6 +423,7 @@ fn many_matches(n: usize) -> Vec<Match> {
             description: format!("Tool number {i}"),
             popularity: Some(1000 - i as u64),
             similarity: 1.0 - (i as f32 * 0.01),
+            last_updated: None,
         })
         .collect()
 }
@@ -605,6 +609,7 @@ fn sort_by_popularity_orders_most_first() {
             description: String::new(),
             popularity: Some(10),
             similarity: 0.95,
+            last_updated: None,
         },
         Match {
             name: "popular-but-loose".into(),
@@ -613,6 +618,7 @@ fn sort_by_popularity_orders_most_first() {
             description: String::new(),
             popularity: Some(99_999),
             similarity: 0.50,
+            last_updated: None,
         },
     ];
     let mut app = App::new("x", v, m);
@@ -736,6 +742,7 @@ fn load_results_replaces_everything() {
         description: "brand new".into(),
         popularity: Some(1),
         similarity: 0.5,
+        last_updated: None,
     }];
     app.load_results("second idea here".into(), v2, m2);
 

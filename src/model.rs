@@ -178,6 +178,15 @@ pub struct Match {
     pub popularity: Option<u64>,
     /// Cosine similarity to the idea, in `[0.0, 1.0]`. Filled in by `rank`.
     pub similarity: f32,
+    /// When the project was last updated, as a whole-second RFC 3339 UTC
+    /// timestamp (e.g. `"2026-05-15T06:13:41Z"`).
+    ///
+    /// `None` whenever the source's *search* response carries no such date —
+    /// fetching one per result would mean an extra request per match, which the
+    /// per-source timeout does not have room for. Also `None` when a date was
+    /// present but unparseable; see [`crate::freshness`], which owns the
+    /// normalisation and the staleness classification built on top of it.
+    pub last_updated: Option<String>,
 }
 
 /// How crowded the space looks, based on what was found in the sources checked.

@@ -53,9 +53,15 @@ pub fn build_prompt(query: &Query, matches: &[Match], sources_checked: &[Source]
             "Top-10 average similarity: {:.2} (scale: 0.0 = unrelated, 0.5 = tangential, \
              0.7+ = strong match). Each match also shows a popularity figure (a per-source \
              signal of how established it is — stars, downloads, etc.) and its URL; a strong \
-             match that is also popular is firmer prior art.\n\n",
+             match that is also popular is firmer prior art. Where the source reports one, a \
+             match also shows when it was last updated. Treat that as colour on the prior art, \
+             never as a reason to discount it: a tool that exists but looks unmaintained is \
+             still proof the idea has been built, and may be worth mentioning as a space with \
+             room for a maintained alternative. Matches with no date shown are ones whose \
+             source does not publish one — that is not evidence of staleness.\n\n",
             avg_sim,
         ));
+        let now = crate::freshness::now();
         for m in matches.iter().take(15) {
             let pop = match m.popularity {
                 Some(p) => format!(", popularity {p}"),
@@ -66,9 +72,15 @@ pub fn build_prompt(query: &Query, matches: &[Match], sources_checked: &[Source]
             } else {
                 format!(" — {}", m.url)
             };
+            let updated = m
+                .last_updated
+                .as_deref()
+                .and_then(|ts| crate::freshness::age(ts, now))
+                .map(|a| format!(", updated {}", a.label))
+                .unwrap_or_default();
             prompt.push_str(&format!(
-                "- **{}** ({}, sim {:.2}{}){}: {}\n",
-                m.name, m.source, m.similarity, pop, url, m.description,
+                "- **{}** ({}, sim {:.2}{}{}){}: {}\n",
+                m.name, m.source, m.similarity, pop, updated, url, m.description,
             ));
         }
         if matches.len() > 15 {
@@ -179,12 +191,52 @@ const ABSENCE_PHRASES: &[&str] = &[
     "zero implementations",
     "zero results",
     "no one is solving",
+    // Maintenance-flavoured absence. Once matches carry a last-updated date the
+    // model can assert absence in a second way — not "nothing exists" but
+    // "nothing *maintained* exists" — and that is the same unprovable claim:
+    // only 8 of the 18 sources publish a date at all, so an undated match is
+    // not an unmaintained one. These are the phrasings that generalise beyond
+    // what was searched; saying a *specific* match is unmaintained ("the
+    // closest match is no longer maintained") stays legal, because that is
+    // read off the data we actually showed.
+    "no maintained",
+    "no actively developed",
+    "nothing maintained",
+    "no up-to-date",
 ];
+
+/// Adverbs a model slips between a negation and its noun ("no **actively**
+/// maintained tool"), which would otherwise walk an absence claim straight past
+/// a literal substring match. Stripped from the text *and* from the phrases
+/// before comparing, so `ABSENCE_PHRASES` can stay written in natural English.
+const HEDGE_WORDS: &[&str] = &[
+    "actively",
+    "currently",
+    "still",
+    "truly",
+    "genuinely",
+    "really",
+    "properly",
+    "widely",
+];
+
+/// Lowercase `text` and drop the hedges above, so "no currently maintained tool"
+/// collapses to the "no maintained tool" the phrase list is written against.
+fn strip_hedges(text: &str) -> String {
+    let mut out = text.to_lowercase();
+    for hedge in HEDGE_WORDS {
+        out = out.replace(&format!("{hedge} "), "");
+    }
+    out
+}
 
 /// True if `text` asserts that something does not exist.
 fn contains_absence_phrase(text: &str) -> bool {
     let lower = text.to_lowercase();
-    ABSENCE_PHRASES.iter().any(|p| lower.contains(p))
+    let hedgeless = strip_hedges(&lower);
+    ABSENCE_PHRASES
+        .iter()
+        .any(|p| lower.contains(p) || hedgeless.contains(&strip_hedges(p)))
 }
 
 /// Phrases claiming nothing was found. Fine when matches are weak, but misleading

@@ -94,6 +94,7 @@ impl SourceAdapter for Packagist {
                     description: p.description.unwrap_or_default(),
                     popularity,
                     similarity: 0.0,
+                    last_updated: None,
                 }
             })
             .collect())

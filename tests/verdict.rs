@@ -25,6 +25,7 @@ fn sample_matches() -> Vec<Match> {
             description: "Kill process on a port".to_string(),
             popularity: Some(50_000),
             similarity: 0.85,
+            last_updated: None,
         },
         Match {
             name: "fkill-cli".to_string(),
@@ -33,6 +34,7 @@ fn sample_matches() -> Vec<Match> {
             description: "Fabulously kill processes".to_string(),
             popularity: Some(10_000),
             similarity: 0.60,
+            last_updated: None,
         },
     ]
 }
@@ -67,6 +69,51 @@ fn prompt_includes_popularity_and_urls() {
     assert!(
         prompt.contains("https://npmjs.com/package/kill-port"),
         "prompt must include the match URL"
+    );
+}
+
+#[test]
+fn prompt_dates_the_matches_whose_source_publishes_one() {
+    // #29: the model weighs prior art better when it can see how live each
+    // match is — and an undated match must read as "no date published", never
+    // as a match that happens to be old.
+    let mut matches = sample_matches();
+    matches[0].last_updated = Some("2015-03-01T00:00:00Z".to_string());
+    let prompt = verdict::build_prompt(&query(), &matches, &checked());
+
+    let dated = prompt
+        .lines()
+        .find(|l| l.contains("kill-port"))
+        .expect("dated match must appear in the prompt");
+    assert!(
+        dated.contains("updated") && dated.contains("years ago"),
+        "a dated match must carry its age: {dated}"
+    );
+
+    let undated = prompt
+        .lines()
+        .find(|l| l.contains("fkill-cli"))
+        .expect("undated match must appear in the prompt");
+    assert!(
+        !undated.contains("updated"),
+        "an undated match must claim nothing about its age: {undated}"
+    );
+}
+
+#[test]
+fn prompt_warns_that_age_is_not_a_reason_to_discount_prior_art() {
+    // Integrity: staleness is colour on the prior art, not a licence to call a
+    // crowded space open. If the guidance ever drops out of the prompt, a model
+    // is free to reason "it's old, therefore it doesn't count".
+    let prompt = verdict::build_prompt(&query(), &sample_matches(), &checked());
+    let lower = prompt.to_lowercase();
+    assert!(
+        lower.contains("never as a reason to discount"),
+        "prompt must tell the model not to discount prior art for being stale"
+    );
+    assert!(
+        lower.contains("not evidence of staleness"),
+        "prompt must explain that an absent date is not a staleness signal"
     );
 }
 
@@ -155,6 +202,7 @@ async fn assess_gap_filter_uses_word_boundaries() {
         description: "schedule tasks".into(),
         popularity: Some(1000),
         similarity: 0.80,
+        last_updated: None,
     }];
 
     let server = mock_ollama(ollama_response(
@@ -415,6 +463,87 @@ async fn assess_scrubs_broadened_absence_phrasings() {
 }
 
 #[tokio::test]
+async fn assess_scrubs_absence_claims_dressed_up_as_maintenance() {
+    // #29 opened a second door to the one claim this tool must never make.
+    // With dates in the prompt, "nothing exists" becomes "nothing *maintained*
+    // exists" — which is just as unprovable (only 8 of 18 sources publish a
+    // date, so an undated match is not an unmaintained one) and reads just as
+    // much like a green light. `sample_matches` floors to Crowded, which is
+    // what the model returns here, so the headline survives the floor and it is
+    // genuinely `guard_headline` doing the scrubbing.
+    for headline in [
+        "No actively maintained tool solves this in the sources checked.",
+        "No maintained alternative turned up.",
+        "Nothing maintained covers this idea.",
+        "There is no currently maintained tool for this.",
+        "No actively developed option covers this.",
+        "No up-to-date implementation of this exists.",
+    ] {
+        let server = mock_ollama(ollama_response("Crowded", headline, &[])).await;
+        let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
+        let v = verdict::assess(&ollama, &query(), &sample_matches(), checked(), vec![])
+            .await
+            .unwrap();
+
+        assert_ne!(
+            v.headline, headline,
+            "maintenance-flavoured absence claim survived: {:?}",
+            v.headline
+        );
+        assert!(
+            v.headline.to_lowercase().contains("sources checked"),
+            "the replacement must be the scoped data headline, got {:?}",
+            v.headline
+        );
+    }
+}
+
+#[tokio::test]
+async fn assess_drops_gaps_claiming_nothing_maintained_exists() {
+    let server = mock_ollama(ollama_response(
+        "Crowded",
+        "Several tools turned up in the sources checked.",
+        &[
+            "no actively maintained tool offers a TUI",
+            "none of the matches offer an async API",
+        ],
+    ))
+    .await;
+
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
+    let v = verdict::assess(&ollama, &query(), &sample_matches(), checked(), vec![])
+        .await
+        .unwrap();
+
+    assert_eq!(
+        v.gaps.len(),
+        1,
+        "the gap asserting nothing maintained exists must be dropped, got {:?}",
+        v.gaps
+    );
+    assert!(v.gaps[0].contains("async API"));
+}
+
+#[tokio::test]
+async fn assess_keeps_an_honest_note_that_a_match_is_unmaintained() {
+    // The other side of the guard above, and the whole point of the feature:
+    // saying a *specific* match looks abandoned is read straight off the data
+    // we showed the user. Over-scrubbing that would throw away the signal #29
+    // exists to surface, so this pins the boundary.
+    let honest = "Crowded — fkill-cli covers this, though it is no longer maintained.";
+    let server = mock_ollama(ollama_response("Crowded", honest, &[])).await;
+    let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
+    let v = verdict::assess(&ollama, &query(), &sample_matches(), checked(), vec![])
+        .await
+        .unwrap();
+
+    assert_eq!(
+        v.headline, honest,
+        "a per-match maintenance note is colour, not an absence claim"
+    );
+}
+
+#[tokio::test]
 async fn assess_threads_failed_sources_into_verdict() {
     let server = mock_ollama(ollama_response("Open", "Nothing close turned up.", &[])).await;
 
@@ -444,6 +573,7 @@ async fn assess_replaces_no_match_headline_when_a_close_match_exists() {
         description: "A prior-art search for your code ideas".into(),
         popularity: None,
         similarity: 0.57,
+        last_updated: None,
     }];
     let server = mock_ollama(ollama_response(
         "Open",
@@ -482,6 +612,7 @@ async fn assess_floors_single_very_strong_match_to_crowded() {
         description: "Nearly the same idea".into(),
         popularity: None,
         similarity: 0.72,
+        last_updated: None,
     }];
     let server = mock_ollama(ollama_response("Open", "A benign headline.", &[])).await;
     let ollama = Ollama::new(server.uri(), "qwen2.5").unwrap();
@@ -554,6 +685,7 @@ fn from_data_floors_single_very_strong_match_to_crowded() {
         description: "Nearly the same idea".into(),
         popularity: None,
         similarity: 0.72,
+        last_updated: None,
     }];
     let v = verdict::from_data(&matches, checked(), vec![]);
     assert_eq!(v.level, Saturation::Crowded);

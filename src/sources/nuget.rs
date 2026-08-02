@@ -71,6 +71,7 @@ impl SourceAdapter for NuGet {
                 description: p.description.unwrap_or_default(),
                 popularity: p.total_downloads,
                 similarity: 0.0,
+                last_updated: None,
             })
             .collect())
     }

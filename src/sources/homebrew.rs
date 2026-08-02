@@ -147,6 +147,7 @@ impl SourceAdapter for Homebrew {
                     description: pkg.desc.clone().unwrap_or_default(),
                     popularity: None,
                     similarity: 0.0,
+                    last_updated: None,
                 }
             })
             .collect())

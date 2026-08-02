@@ -8,6 +8,7 @@
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -45,6 +46,9 @@ struct Package {
     meta: Meta,
     #[serde(default)]
     downloads: Downloads,
+    /// Last release of the package — RFC 3339 with microsecond precision.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    updated_at: Option<String>,
 }
 
 /// The `meta` block; only the human-readable description is used.
@@ -98,6 +102,7 @@ impl SourceAdapter for Hex {
                     // Treat a zero/absent lifetime download count as no signal.
                     popularity: p.downloads.all.filter(|&d| d > 0),
                     similarity: 0.0,
+                    last_updated: p.updated_at.as_deref().and_then(freshness::from_rfc3339),
                 }
             })
             .collect())

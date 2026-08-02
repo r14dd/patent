@@ -22,6 +22,15 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 /// Score each match against the query embedding, sort by similarity descending,
 /// and keep at most `limit`.
+///
+/// Ranking is deliberately **similarity-only**: a match's age is reported but
+/// never folded into its score. An abandoned project is still prior art — the
+/// idea was had, and shipped — so demoting old matches would thin out the very
+/// evidence the verdict is floored against. `verdict::floor_level` derives the
+/// saturation floor from this similarity data, so deflating similarity for age
+/// would quietly weaken the integrity guard itself and let a well-trodden space
+/// read as "Open". Recency belongs in the output, where a human and the LLM can
+/// weigh it, not in the score.
 fn score_sort_limit(
     query_emb: &[f32],
     mut matches: Vec<Match>,
@@ -254,6 +263,7 @@ mod tests {
             description: desc.to_string(),
             popularity: None,
             similarity: 0.0,
+            last_updated: None,
         }
     }
 

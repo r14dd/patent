@@ -4,8 +4,43 @@
 //! a Python query searches PyPI, etc. GitHub is always included. When no
 //! language is detected, the three largest registries (npm, PyPI, crates.io)
 //! are used as a broad fallback.
+//!
+//! # Which sources report a last-updated date
+//!
+//! [`Match::last_updated`] is populated only where the *search* response
+//! already carries a date. Fetching one per result would mean an extra request
+//! per match, and with `SOURCE_TIMEOUT` bounding the whole source that is not
+//! a trade worth making. The split below was established by probing each live
+//! API, so the gaps are deliberate rather than unfinished:
+//!
+//! | Populated | Field |
+//! |---|---|
+//! | crates.io | `updated_at` |
+//! | npm | `package.date` |
+//! | GitHub | `pushed_at` (last push, not metadata edits) |
+//! | Hex | `updated_at` |
+//! | Maven | `timestamp` (epoch millis) |
+//! | AUR | `LastModified` (epoch secs) |
+//! | Artifact Hub | `ts` (epoch secs) |
+//! | Go | scraped from the rendered "published on" date |
+//!
+//! Always `None`: **RubyGems**, **Docker Hub**, **NuGet**, **Packagist**,
+//! **Homebrew**, **Hackage** and **Nixpkgs** return no date in their search
+//! responses at all; **PyPI** is bot-walled and returns nothing to parse.
+//! **Hacker News** does expose `created_at`, but that is when a thread was
+//! posted — it says nothing about whether the thing discussed is maintained,
+//! and rendering a 2012 discussion as "stale" would be actively misleading.
+//!
+//! The table describes what each source *publishes*, not what every rendered
+//! row ends up carrying. A match attributed to an undated source can still show
+//! a date if another source returned the same URL: [`dedup`] merges duplicates
+//! and fills the kept match's gaps. A Homebrew formula whose homepage is a
+//! GitHub repo inherits that repo's `pushed_at` — a date about the same
+//! artifact, from the source that does publish one.
+//!
+//! [`Match::last_updated`]: crate::model::Match::last_updated
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -411,25 +446,64 @@ pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -
 }
 
 /// Remove duplicate matches by URL, keeping the first occurrence and preserving
-/// order. URL is a match's canonical identity across sources.
+/// order, but filling that first occurrence's gaps from the duplicates behind
+/// it. URL is a match's canonical identity across sources.
 ///
 /// Empty/whitespace URLs are never used as a dedup key -- they would collapse
 /// all homepage-less entries (e.g. Homebrew formulae with no homepage) into one
 /// slot, silently dropping every subsequent one. Those fall through to a
 /// (name, source) key instead.
+///
+/// The enrichment matters because sources know different things about the same
+/// artifact: GitHub reports a repo's `pushed_at` and star count, while the
+/// Homebrew formula whose homepage *is* that repo reports neither (35% of
+/// formulae have a homepage byte-identical to a GitHub repo URL, so this is a
+/// routine collision, not a corner case). Dropping the loser wholesale threw
+/// that information away -- and since the fan-out iterates a [`HashSet`], which
+/// copy arrives first is randomised per process, so the very same query showed
+/// a last-updated date on one run and none on the next.
 pub fn dedup(matches: Vec<Match>) -> Vec<Match> {
-    let mut seen_urls: HashSet<String> = HashSet::new();
-    let mut seen_name_source: HashSet<(String, crate::model::Source)> = HashSet::new();
-    matches
-        .into_iter()
-        .filter(|m| {
-            if m.url.trim().is_empty() {
-                seen_name_source.insert((m.name.clone(), m.source))
-            } else {
-                seen_urls.insert(m.url.clone())
+    let mut by_url: HashMap<String, usize> = HashMap::new();
+    let mut by_name_source: HashMap<(String, crate::model::Source), usize> = HashMap::new();
+    let mut kept: Vec<Match> = Vec::new();
+
+    for m in matches {
+        let keyed_by_url = !m.url.trim().is_empty();
+        let existing = if keyed_by_url {
+            by_url.get(&m.url).copied()
+        } else {
+            by_name_source.get(&(m.name.clone(), m.source)).copied()
+        };
+
+        match existing {
+            Some(i) => enrich(&mut kept[i], m),
+            None => {
+                if keyed_by_url {
+                    by_url.insert(m.url.clone(), kept.len());
+                } else {
+                    by_name_source.insert((m.name.clone(), m.source), kept.len());
+                }
+                kept.push(m);
             }
-        })
-        .collect()
+        }
+    }
+
+    kept
+}
+
+/// Fill in what the kept match doesn't know from a later duplicate of the same
+/// artifact.
+///
+/// Only ever fills gaps. A value the kept copy already carries is never
+/// overwritten, so which source "owns" a shared URL -- its name, description and
+/// the rest -- stays exactly what it was before: the first one to arrive.
+fn enrich(kept: &mut Match, dup: Match) {
+    if kept.last_updated.is_none() {
+        kept.last_updated = dup.last_updated;
+    }
+    if kept.popularity.is_none() {
+        kept.popularity = dup.popularity;
+    }
 }
 
 #[cfg(test)]

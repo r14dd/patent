@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -43,6 +44,9 @@ struct CrateHit {
     description: Option<String>,
     #[serde(default)]
     downloads: Option<u64>,
+    /// Last publish of any version — RFC 3339 with microsecond precision.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    updated_at: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -75,6 +79,7 @@ impl SourceAdapter for CratesIo {
                 description: c.description.unwrap_or_default(),
                 popularity: c.downloads,
                 similarity: 0.0,
+                last_updated: c.updated_at.as_deref().and_then(freshness::from_rfc3339),
             })
             .collect())
     }

@@ -13,6 +13,7 @@
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -50,6 +51,9 @@ struct SolrDoc {
     g: String,
     #[serde(default)]
     a: String,
+    /// Publish time of `latestVersion`, as epoch **milliseconds**.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    timestamp: Option<i64>,
 }
 
 #[async_trait::async_trait]
@@ -86,6 +90,7 @@ impl SourceAdapter for Maven {
                     url,
                     popularity: None,
                     similarity: 0.0,
+                    last_updated: d.timestamp.and_then(freshness::from_unix_millis),
                 }
             })
             .collect())

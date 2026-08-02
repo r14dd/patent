@@ -68,6 +68,7 @@ impl SourceAdapter for RubyGems {
                 description: g.info.unwrap_or_default(),
                 popularity: g.downloads,
                 similarity: 0.0,
+                last_updated: None,
             })
             .collect())
     }

@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 use super::SourceAdapter;
+use crate::freshness;
 use crate::model::{Match, Query, Source};
 use crate::Result;
 
@@ -56,6 +57,9 @@ struct Package {
     name: String,
     #[serde(default)]
     description: Option<String>,
+    /// Publish date of the version this hit refers to — RFC 3339, milliseconds.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    date: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -93,6 +97,7 @@ impl SourceAdapter for Npm {
                     description: o.package.description.unwrap_or_default(),
                     popularity: pop,
                     similarity: 0.0,
+                    last_updated: o.package.date.as_deref().and_then(freshness::from_rfc3339),
                 }
             })
             .collect())

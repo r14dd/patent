@@ -62,6 +62,7 @@ fn two_crate_body() -> serde_json::Value {
         "crates": [
             {
                 "name": "tokio",
+                "updated_at": "2026-05-15T06:13:41.215606Z",
                 "description": "An event-driven, non-blocking I/O platform.",
                 "downloads": 950_000_000_u64,
                 "max_version": "1.40.0",
@@ -271,6 +272,7 @@ fn github_body() -> serde_json::Value {
         "items": [
             {
                 "full_name": "tokio-rs/tokio",
+                "pushed_at": "2026-07-31T18:49:43Z",
                 "description": "An async runtime for Rust.",
                 "html_url": "https://github.com/tokio-rs/tokio",
                 "stargazers_count": 27000
@@ -468,7 +470,7 @@ fn npm_body() -> serde_json::Value {
     json!({
         "total": 2,
         "objects": [
-            { "package": { "name": "express", "description": "Fast web framework." } },
+            { "package": { "name": "express", "description": "Fast web framework.", "date": "2026-07-21T15:41:28.716Z" } },
             { "package": { "name": "koa", "description": "Next-gen web framework." } }
         ]
     })
@@ -916,6 +918,7 @@ fn sample_match(name: &str, url: &str) -> Match {
         description: String::new(),
         popularity: None,
         similarity: 0.0,
+        last_updated: None,
     }
 }
 
@@ -941,6 +944,76 @@ fn dedup_keeps_distinct_urls() {
         sample_match("b", "https://x/b"),
     ];
     assert_eq!(dedup(input).len(), 2);
+}
+
+/// The real collision: a Homebrew formula whose homepage *is* a GitHub repo URL,
+/// alongside GitHub's own entry for that repo. Homebrew publishes no date and no
+/// star count; GitHub publishes both. Fan-out order is randomised (it iterates a
+/// `HashSet`), so if the loser were dropped wholesale the same query would show
+/// a date on one run and not the next.
+#[test]
+fn dedup_fills_gaps_in_the_kept_match_from_a_later_duplicate() {
+    let url = "https://github.com/skim-rs/skim";
+    let brew = Match {
+        name: "sk".to_string(),
+        source: SourceId::Homebrew,
+        url: url.to_string(),
+        description: "Fuzzy Finder in rust!".to_string(),
+        popularity: None,
+        similarity: 0.0,
+        last_updated: None,
+    };
+    let github = Match {
+        name: "skim-rs/skim".to_string(),
+        source: SourceId::GitHub,
+        url: url.to_string(),
+        description: "Fuzzy Finder in rust!".to_string(),
+        popularity: Some(5_600),
+        similarity: 0.0,
+        last_updated: Some("2026-08-02T08:39:42Z".to_string()),
+    };
+
+    let out = dedup(vec![brew, github]);
+
+    assert_eq!(out.len(), 1);
+    // Identity still belongs to the first arrival — enrichment fills gaps, it
+    // does not hand the row to the other source.
+    assert_eq!(out[0].name, "sk");
+    assert_eq!(out[0].source, SourceId::Homebrew);
+    // ...but what only the duplicate knew is no longer lost.
+    assert_eq!(out[0].last_updated.as_deref(), Some("2026-08-02T08:39:42Z"));
+    assert_eq!(out[0].popularity, Some(5_600));
+}
+
+#[test]
+fn dedup_never_overwrites_what_the_kept_match_already_knows() {
+    let mut first = sample_match("a", "https://x/a");
+    first.last_updated = Some("2020-01-01T00:00:00Z".to_string());
+    first.popularity = Some(1);
+
+    let mut later = sample_match("a-dup", "https://x/a");
+    later.last_updated = Some("2026-01-01T00:00:00Z".to_string());
+    later.popularity = Some(999);
+
+    let out = dedup(vec![first, later]);
+
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].last_updated.as_deref(), Some("2020-01-01T00:00:00Z"));
+    assert_eq!(out[0].popularity, Some(1));
+}
+
+/// Homepage-less entries fall through to a (name, source) key, and that path
+/// enriches too.
+#[test]
+fn dedup_enriches_across_the_name_source_key_as_well() {
+    let first = sample_match("lonely", "");
+    let mut later = sample_match("lonely", "");
+    later.last_updated = Some("2026-03-01T00:00:00Z".to_string());
+
+    let out = dedup(vec![first, later]);
+
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].last_updated.as_deref(), Some("2026-03-01T00:00:00Z"));
 }
 
 #[tokio::test]
@@ -1140,6 +1213,7 @@ fn go_html() -> String {
     r#"<!doctype html><html><body>
       <div class="SearchSnippet">
         <a href="/github.com/spf13/cobra">cobra</a>
+        <span data-test-id="snippet-published"><strong>Feb 28, 2026</strong></span>
         <p class="SearchSnippet-synopsis">A Commander for modern Go CLI interactions.</p>
       </div>
     </body></html>"#
@@ -1209,7 +1283,7 @@ fn maven_body() -> serde_json::Value {
     json!({
         "response": {
             "docs": [
-                { "g": "com.google.guava", "a": "guava", "versionCount": 50 }
+                { "g": "com.google.guava", "a": "guava", "versionCount": 50, "timestamp": 1_750_337_811_233_i64 }
             ]
         }
     })
@@ -1860,6 +1934,7 @@ fn hex_body() -> serde_json::Value {
     json!([
         {
             "name": "phoenix",
+            "updated_at": "2026-03-24T16:51:48.689517Z",
             "html_url": "https://hex.pm/packages/phoenix",
             "meta": { "description": "Productive web framework that does not compromise speed or maintainability." },
             "downloads": { "all": 50_000_000_u64, "recent": 1_000_000_u64, "week": 250_000_u64 }
@@ -1994,6 +2069,7 @@ fn artifacthub_body() -> serde_json::Value {
         "packages": [
             {
                 "name": "prometheus",
+                "ts": 1_785_445_235_i64,
                 "description": "Prometheus monitoring system and time series database",
                 "stars": 4200,
                 "repository": {
@@ -2158,6 +2234,7 @@ fn aur_body() -> serde_json::Value {
         "results": [
             {
                 "Name": "ccache",
+                "LastModified": 1_778_477_360_i64,
                 "Description": "Compiler cache that speeds up recompilation",
                 "URL": "https://ccache.dev",
                 "NumVotes": 120,
@@ -2400,4 +2477,239 @@ async fn nixpkgs_malformed_body_is_propagated() {
         result.is_err(),
         "an unparseable body must surface as an error"
     );
+}
+
+// ── last_updated (#29) ──────────────────────────────────────────────────────
+//
+// Three properties per adapter that reports a date:
+//   1. the registry's own format is normalised to whole-second RFC 3339 UTC;
+//   2. an entry with no date yields `None` rather than a fabricated one;
+//   3. an unparseable date yields `None` *and still returns its matches* — a
+//      registry changing its timestamp format must not take out the source.
+//
+// The fixture values are the real shapes probed from each live API (microsecond
+// and millisecond RFC 3339, epoch seconds, epoch millis, a rendered date), so
+// these pin the formats actually in play.
+
+/// Serve `body` at `path`, run `search`, return the matches.
+macro_rules! matches_from {
+    ($server:expr, $path:expr, $body:expr, $src:expr) => {{
+        Mock::given(method("GET"))
+            .and(path($path))
+            .respond_with(ResponseTemplate::new(200).set_body_json($body))
+            .mount(&$server)
+            .await;
+        $src.search(&query()).await.unwrap()
+    }};
+}
+
+#[tokio::test]
+async fn crates_io_normalises_last_updated_and_omits_it_when_absent() {
+    let server = MockServer::start().await;
+    let m = matches_from!(
+        server,
+        "/api/v1/crates",
+        two_crate_body(),
+        source_for(&server)
+    );
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-05-15T06:13:41Z"));
+    assert_eq!(m[1].last_updated, None, "no updated_at in the fixture");
+}
+
+#[tokio::test]
+async fn github_uses_pushed_at_for_last_updated() {
+    let server = MockServer::start().await;
+    let m = matches_from!(
+        server,
+        "/search/repositories",
+        github_body(),
+        github_for(&server)
+    );
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-07-31T18:49:43Z"));
+    assert_eq!(m[1].last_updated, None);
+}
+
+#[tokio::test]
+async fn npm_normalises_millisecond_dates() {
+    let server = MockServer::start().await;
+    let m = matches_from!(server, "/-/v1/search", npm_body(), npm_for(&server));
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-07-21T15:41:28Z"));
+    assert_eq!(m[1].last_updated, None);
+}
+
+#[tokio::test]
+async fn hex_normalises_microsecond_dates() {
+    let server = MockServer::start().await;
+    let m = matches_from!(server, "/api/packages", hex_body(), hex_for(&server));
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-03-24T16:51:48Z"));
+    assert_eq!(m[1].last_updated, None);
+}
+
+#[tokio::test]
+async fn maven_converts_epoch_millis() {
+    let server = MockServer::start().await;
+    let src = Maven::with_base_url(Client::new(), server.uri());
+    let m = matches_from!(server, "/solrsearch/select", maven_body(), src);
+    // Millis, not seconds — reading 1_750_337_811_233 as seconds lands in year 57000.
+    assert_eq!(m[0].last_updated.as_deref(), Some("2025-06-19T12:56:51Z"));
+}
+
+#[tokio::test]
+async fn aur_converts_epoch_seconds() {
+    let server = MockServer::start().await;
+    let m = matches_from!(server, "/rpc/", aur_body(), aur_for(&server));
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-05-11T05:29:20Z"));
+    assert_eq!(m[1].last_updated, None);
+}
+
+#[tokio::test]
+async fn artifacthub_converts_epoch_seconds() {
+    let server = MockServer::start().await;
+    let m = matches_from!(
+        server,
+        "/api/v1/packages/search",
+        artifacthub_body(),
+        artifacthub_for(&server)
+    );
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-07-30T21:00:35Z"));
+    assert_eq!(m[1].last_updated, None);
+}
+
+#[tokio::test]
+async fn go_parses_the_rendered_publication_date() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(go_html()))
+        .mount(&server)
+        .await;
+    let m = GoPkgDev::with_base_url(Client::new(), server.uri())
+        .search(&query())
+        .await
+        .unwrap();
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-02-28T00:00:00Z"));
+}
+
+#[tokio::test]
+async fn a_malformed_date_never_fails_its_source() {
+    // Each adapter that reads a date, fed a broken value in that field only.
+    // Two distinct failure modes are covered: a *parse* failure (a well-typed
+    // string that isn't a date) and a *type* failure (a number where a string
+    // was, or vice versa). The second is the one `#[serde(default)]` alone does
+    // not survive — it aborts deserialisation of the whole response — which is
+    // why the date fields also go through `freshness::lenient`.
+    type Build = fn(String) -> Box<dyn SourceAdapter>;
+    let cases: Vec<(&str, serde_json::Value, Build)> = vec![
+        (
+            "/api/v1/crates",
+            {
+                let mut b = two_crate_body();
+                b["crates"][0]["updated_at"] = json!("last tuesday"); // unparseable
+                b
+            },
+            |u| Box::new(CratesIo::with_base_url(test_client(), u)),
+        ),
+        (
+            "/search/repositories",
+            {
+                let mut b = github_body();
+                b["items"][0]["pushed_at"] = json!(""); // empty
+                b
+            },
+            |u| Box::new(GitHub::with_base_url(test_client(), u)),
+        ),
+        (
+            "/-/v1/search",
+            {
+                let mut b = npm_body();
+                b["objects"][0]["package"]["date"] = json!(1_755_000_000_i64); // number, was a string
+                b
+            },
+            |u| Box::new(Npm::with_base_url(test_client(), u)),
+        ),
+        (
+            "/api/packages",
+            {
+                let mut b = hex_body();
+                b[0]["updated_at"] = json!({ "iso": "2026-03-24" }); // object, was a string
+                b
+            },
+            |u| Box::new(Hex::with_base_url(test_client(), u)),
+        ),
+        (
+            "/solrsearch/select",
+            {
+                let mut b = maven_body();
+                b["response"]["docs"][0]["timestamp"] = json!("1750337811233"); // string, was a number
+                b
+            },
+            |u| Box::new(Maven::with_base_url(test_client(), u)),
+        ),
+        (
+            "/rpc/",
+            {
+                let mut b = aur_body();
+                b["results"][0]["LastModified"] = json!(i64::MAX); // out of range
+                b
+            },
+            |u| Box::new(Aur::with_base_url(test_client(), u)),
+        ),
+        (
+            "/api/v1/packages/search",
+            {
+                let mut b = artifacthub_body();
+                b["packages"][0]["ts"] = json!("not-a-number"); // string, was a number
+                b
+            },
+            |u| Box::new(ArtifactHub::with_base_url(test_client(), u)),
+        ),
+    ];
+
+    for (route, body, build) in cases {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let matches = build(server.uri())
+            .search(&query())
+            .await
+            .unwrap_or_else(|e| panic!("{route}: a broken date must not fail the source: {e}"));
+
+        assert!(
+            !matches.is_empty(),
+            "{route}: the matches themselves must still come through"
+        );
+        assert!(
+            matches.iter().all(|m| m.last_updated.is_none()),
+            "{route}: a broken date must degrade to None, not a fabricated value"
+        );
+    }
+}
+
+/// pkg.go.dev is scraped, so its date drifts differently: the element can move,
+/// vanish, or start rendering a format we don't know.
+#[tokio::test]
+async fn go_survives_an_unparseable_rendered_date() {
+    for html in [
+        go_html().replace("Feb 28, 2026", "Smarch 40, 2026"),
+        go_html().replace("Feb 28, 2026", ""),
+        go_html().replace("snippet-published", "snippet-renamed"),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(html))
+            .mount(&server)
+            .await;
+
+        let m = GoPkgDev::with_base_url(Client::new(), server.uri())
+            .search(&query())
+            .await
+            .expect("a bad date must not fail the source");
+        assert_eq!(m.len(), 1, "the match itself must still come through");
+        assert_eq!(m[0].last_updated, None);
+    }
 }

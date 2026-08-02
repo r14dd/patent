@@ -163,6 +163,7 @@ impl SourceAdapter for HackerNews {
                     description: desc,
                     popularity: h.points,
                     similarity: 0.0,
+                    last_updated: None,
                 }
             })
             .collect())

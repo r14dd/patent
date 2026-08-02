@@ -38,6 +38,12 @@ enum Phase {
 
 const ACCENT: Color = Color::Cyan;
 const MUTED: Color = Color::DarkGray;
+/// Highlight for a match whose source reports no update in
+/// [`patent::freshness::STALE_AFTER_YEARS`].
+const STALE: Color = Color::Yellow;
+/// Table marker for the same. Single-width, matching the `★`/`↳`/`·` already
+/// used here — an emoji-width glyph would throw off the column maths.
+const STALE_MARK: &str = "⚑";
 
 /// LLM backend configuration forwarded from the CLI into the interactive TUI.
 #[derive(Debug, Clone)]
@@ -65,6 +71,19 @@ fn level_color(level: Saturation) -> Color {
         Saturation::Crowded => Color::Yellow,
         Saturation::Saturated => Color::Red,
     }
+}
+
+/// Whether a match's source reports no update in
+/// [`patent::freshness::STALE_AFTER_YEARS`].
+///
+/// A match whose source publishes no date at all is never stale — most sources
+/// don't publish one, and treating silence as abandonment would flag half the
+/// table on no evidence.
+fn is_stale(m: &patent::Match) -> bool {
+    m.last_updated
+        .as_deref()
+        .and_then(|ts| patent::freshness::age(ts, patent::freshness::now()))
+        .is_some_and(|a| a.stale)
 }
 
 fn score_color(sim: f32) -> Color {
@@ -401,12 +420,20 @@ fn draw(frame: &mut Frame, app: &App, table_state: &mut TableState) -> Rect {
     let rows: Vec<Row> = displayed
         .iter()
         .map(|m| {
+            // Flagged, not demoted: the row keeps its rank (see `rank.rs` on why
+            // age never touches the score) and only picks up a visual marker.
+            let stale = is_stale(m);
+            let name = if stale {
+                format!("{} {STALE_MARK}", m.name)
+            } else {
+                m.name.clone()
+            };
             Row::new(vec![
                 Cell::from(format!("{:.2}", m.similarity))
                     .style(Style::default().fg(score_color(m.similarity))),
-                Cell::from(m.name.as_str()).style(
+                Cell::from(name).style(
                     Style::default()
-                        .fg(Color::White)
+                        .fg(if stale { STALE } else { Color::White })
                         .add_modifier(Modifier::BOLD),
                 ),
                 Cell::from(m.source.to_string()).style(
@@ -649,7 +676,7 @@ fn draw_detail(frame: &mut Frame, app: &App) {
             .add_modifier(Modifier::BOLD),
     )));
 
-    lines.push(Line::from(vec![
+    let mut meta = vec![
         Span::raw("  "),
         Span::styled(
             m.source.to_string(),
@@ -662,7 +689,27 @@ fn draw_detail(frame: &mut Frame, app: &App) {
         ),
         Span::styled("  ·  ", Style::default().fg(MUTED)),
         Span::styled(pop_str, Style::default().fg(MUTED)),
-    ]));
+    ];
+    // Sources that publish no date simply omit this — an absent date is not a
+    // staleness claim, so it must not render as one.
+    if let Some(age) = m
+        .last_updated
+        .as_deref()
+        .and_then(|ts| patent::freshness::age(ts, patent::freshness::now()))
+    {
+        meta.push(Span::styled("  ·  ", Style::default().fg(MUTED)));
+        meta.push(Span::styled(
+            format!("updated {}", age.label),
+            Style::default().fg(if age.stale { STALE } else { MUTED }),
+        ));
+        if age.stale {
+            meta.push(Span::styled(
+                format!("  {STALE_MARK}"),
+                Style::default().fg(STALE),
+            ));
+        }
+    }
+    lines.push(Line::from(meta));
 
     lines.push(Line::raw(""));
 
@@ -736,6 +783,13 @@ fn draw_help(frame: &mut Frame) {
     let area = centered_rect(56, 84, frame.area());
     frame.render_widget(Clear, area);
 
+    // Read off the constant rather than spelled out, so the threshold and the
+    // help that explains it cannot drift apart.
+    let stale_help = format!(
+        "No update in {}+ years (where the source reports one)",
+        patent::freshness::STALE_AFTER_YEARS
+    );
+
     let lines = vec![
         Line::raw(""),
         help_section("Navigation"),
@@ -763,6 +817,9 @@ fn draw_help(frame: &mut Frame) {
         help_row("Esc", "Cancel filter"),
         help_row("Enter", "Confirm filter"),
         help_row("Backspace", "Delete character"),
+        Line::raw(""),
+        help_section("Markers"),
+        help_row(STALE_MARK, &stale_help),
         Line::raw(""),
     ];
 
@@ -1205,6 +1262,7 @@ mod tests {
                 description: "a tool that does something useful".into(),
                 popularity: Some(100),
                 similarity: 0.9 - (i as f32 * 0.01),
+                last_updated: None,
             })
             .collect()
     }
@@ -1338,6 +1396,7 @@ mod tests {
             description: "a tool".into(),
             popularity: Some(100),
             similarity: 0.9,
+            last_updated: None,
         };
         let text = rendered(100, 30, v, vec![m]);
         assert!(
@@ -1446,6 +1505,7 @@ mod tests {
             description: String::new(),
             popularity: None,
             similarity: 0.5,
+            last_updated: None,
         };
         let text = rendered_with(100, 30, v, vec![m], |app| app.enter_detail());
         assert!(
@@ -1464,9 +1524,90 @@ mod tests {
             description: "something".into(),
             popularity: None,
             similarity: 0.6,
+            last_updated: None,
         };
         let text = rendered_with(100, 30, v, vec![m], |app| app.enter_detail());
         assert!(text.contains('—'), "dash shown when popularity is None");
+    }
+
+    /// A match dated far enough in the past that it stays stale for as long as
+    /// this suite is plausibly run.
+    fn dated(name: &str, last_updated: Option<String>) -> Match {
+        Match {
+            name: name.to_string(),
+            source: Source::CratesIo,
+            url: "https://example.com/dated".into(),
+            description: "a tool".into(),
+            popularity: Some(10),
+            similarity: 0.8,
+            last_updated,
+        }
+    }
+
+    /// A timestamp `days` before now, built off the system clock so "recent"
+    /// stays recent however long from now the suite runs.
+    fn days_ago(days: i64) -> Option<String> {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        patent::freshness::from_unix_secs(secs - days * 86_400)
+    }
+
+    #[test]
+    fn stale_match_is_flagged_in_the_table() {
+        let v = verdict_with(1, vec![]);
+        let m = dated("old-tool", Some("2015-03-01T00:00:00Z".into()));
+        let text = rendered(100, 30, v, vec![m]);
+        assert!(
+            text.contains(STALE_MARK),
+            "a match unchanged since 2015 must carry the stale marker:\n{text}"
+        );
+    }
+
+    #[test]
+    fn fresh_match_carries_no_stale_marker() {
+        let v = verdict_with(1, vec![]);
+        let m = dated("new-tool", days_ago(30));
+        let text = rendered(100, 30, v, vec![m]);
+        assert!(
+            !text.contains(STALE_MARK),
+            "a match updated last month must not be flagged:\n{text}"
+        );
+    }
+
+    #[test]
+    fn undated_match_is_never_flagged_as_stale() {
+        // Most sources publish no date at all. Treating that silence as
+        // abandonment would invent a signal the registry never gave us.
+        let v = verdict_with(1, vec![]);
+        let text = rendered(100, 30, v, vec![dated("undated-tool", None)]);
+        assert!(
+            !text.contains(STALE_MARK),
+            "an absent date is not a staleness claim:\n{text}"
+        );
+    }
+
+    #[test]
+    fn detail_popup_shows_how_long_ago_it_was_updated() {
+        let v = verdict_with(1, vec![]);
+        let m = dated("old-tool", Some("2015-03-01T00:00:00Z".into()));
+        let text = rendered_with(100, 30, v, vec![m], |app| app.enter_detail());
+        assert!(text.contains("updated"), "age label shown:\n{text}");
+        assert!(text.contains("years ago"), "age is humanised:\n{text}");
+    }
+
+    #[test]
+    fn detail_popup_omits_the_age_when_the_source_publishes_no_date() {
+        let v = verdict_with(1, vec![]);
+        let text = rendered_with(100, 30, v, vec![dated("undated-tool", None)], |app| {
+            app.enter_detail()
+        });
+        assert!(
+            !text.contains("updated"),
+            "no date means no age line at all:\n{text}"
+        );
+        assert!(!text.contains(STALE_MARK), "and no marker either:\n{text}");
     }
 
     #[test]
@@ -1479,6 +1620,7 @@ mod tests {
             description: "tool".into(),
             popularity: Some(42),
             similarity: 0.8,
+            last_updated: None,
         };
         let _ = rendered_with(80, 24, v, vec![m], |app| app.enter_detail());
     }
@@ -1493,6 +1635,7 @@ mod tests {
             description: "a tool".into(),
             popularity: None,
             similarity: 0.7,
+            last_updated: None,
         };
         let _ = rendered_with(80, 24, v, vec![m], |app| app.enter_detail());
     }
@@ -1510,6 +1653,7 @@ mod tests {
             description: words.join(" "),
             popularity: None,
             similarity: 0.9,
+            last_updated: None,
         };
         // At scroll=0, "lastword" is beyond the viewport.
         let t0 = rendered_with(100, 30, v.clone(), vec![m.clone()], |app| {
@@ -1539,6 +1683,7 @@ mod tests {
             description: "short".into(),
             popularity: Some(1),
             similarity: 0.5,
+            last_updated: None,
         };
         let text = rendered_with(100, 30, v, vec![m], |app| {
             app.enter_detail();
@@ -1568,6 +1713,7 @@ mod tests {
             description: words.join(" "),
             popularity: None,
             similarity: 0.9,
+            last_updated: None,
         };
         // Scroll to end, then close and reopen — should be back at top (word0 visible).
         let text = rendered_with(100, 30, v, vec![m], |app| {

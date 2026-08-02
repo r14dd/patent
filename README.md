@@ -29,7 +29,8 @@ Before you build a dev tool, `patent` checks whether it already exists. One quer
 
 1. **Source selection** — `patent` picks the registries relevant to your idea; GitHub and Hacker News are always searched.
 2. **Semantic ranking** — every match is embedded locally with [`fastembed`](https://github.com/Anush008/fastembed-rs) and ranked by cosine similarity to your idea.
-3. **Verdict** — an LLM summarises the landscape into one of three levels, *floored* against the similarity data so it can never under-rate a populated space:
+3. **Maintenance signal** — where a source publishes one, a match shows when it was last updated, and anything untouched for 2+ years is flagged `⚑`. Stale matches are flagged, never demoted: an abandoned tool is still proof the idea has been built. A match with no date is one no source published a date for — not a stale one. (If two sources return the same URL, the surviving row borrows whichever date was found.)
+4. **Verdict** — an LLM summarises the landscape into one of three levels, *floored* against the similarity data so it can never under-rate a populated space:
    - 🟢 **Open** — nothing close found in the sources checked.
    - 🟡 **Crowded** — a few adjacent tools exist.
    - 🔴 **Saturated** — the space is densely populated.
@@ -131,12 +132,18 @@ Precedence: CLI flag > environment variable > config file > built-in default.
 | `/` | Filter matches |
 | `s` | Cycle sort (similarity / popularity / name) |
 | `m` | Show more / show less |
-| `Enter` | Show match details (description, popularity, URL) |
+| `Enter` | Show match details (description, popularity, last updated, URL) |
 | `o` | Open selected URL in browser |
 | `y` | Copy selected URL to clipboard |
 | `n` | New search (interactive mode) |
 | `?` | Help overlay |
 | `q` | Quit |
+
+### Markers
+
+| Marker | Meaning |
+|---|---|
+| `⚑` | No update in 2+ years — only ever shown where a date is actually known, so its absence is not a claim of freshness |
 
 Mouse works too — scroll with the wheel, click to select.
 

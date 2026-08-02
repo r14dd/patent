@@ -165,6 +165,7 @@ impl SourceAdapter for Nixpkgs {
                     description: desc,
                     popularity: None,
                     similarity: 0.0,
+                    last_updated: None,
                 }
             })
             .collect();

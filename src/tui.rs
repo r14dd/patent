@@ -396,6 +396,7 @@ mod tests {
             description: "an example".into(),
             popularity: Some(100),
             similarity: 0.8,
+            last_updated: None,
         }]
     }
 
@@ -464,6 +465,7 @@ mod tests {
                 description: "tool a".into(),
                 popularity: Some(200),
                 similarity: 0.9,
+                last_updated: None,
             },
             Match {
                 name: "tool-b".into(),
@@ -472,6 +474,7 @@ mod tests {
                 description: "tool b".into(),
                 popularity: Some(50),
                 similarity: 0.7,
+                last_updated: None,
             },
         ];
         app.load_results("second idea about tools".into(), v2, m2);
@@ -509,6 +512,7 @@ mod tests {
                 description: "desc".into(),
                 popularity: None,
                 similarity: 0.5,
+                last_updated: None,
             }],
         );
 

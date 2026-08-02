@@ -90,8 +90,45 @@ fn assert_live(matches: &[Match], expected: SourceId) {
     eprintln!("✓ {expected}: {} matches", matches.len());
 }
 
+/// Extra assertions for the eight sources that publish a last-updated date
+/// (see the table in `src/sources/mod.rs`).
+///
+/// This is the drift the mocked suite structurally cannot catch: `tests/sources.rs`
+/// pins each registry's date field in a fixture, so a field that upstream renames,
+/// retypes, or drops keeps passing there forever while every real match silently
+/// loses its date. The unit check matters as much as the presence one — a registry
+/// switching epoch milliseconds to seconds would not error, it would quietly date
+/// every match to 1970 and render the whole source as abandoned.
+fn assert_dated(matches: &[Match], expected: SourceId) {
+    let dated = matches.iter().filter(|m| m.last_updated.is_some()).count();
+    assert!(
+        dated > 0,
+        "{expected}: not one of {} live matches carried a last-updated date — \
+         the upstream date field has likely been renamed, retyped, or dropped",
+        matches.len()
+    );
+
+    let this_year = patent::freshness::now().year();
+    for ts in matches.iter().filter_map(|m| m.last_updated.as_deref()) {
+        let parsed = patent::freshness::parse(ts)
+            .unwrap_or_else(|| panic!("{expected}: stored an unparseable date: {ts:?}"));
+        // A published package predating 2000, or dated beyond next year, means
+        // the units drifted (seconds read as millis, or the reverse) rather than
+        // the field vanishing.
+        assert!(
+            (2000..=this_year + 1).contains(&parsed.year()),
+            "{expected}: implausible last-updated date {ts:?} — the upstream \
+             timestamp units have likely changed"
+        );
+    }
+    eprintln!("✓ {expected}: {dated}/{} matches dated", matches.len());
+}
+
 macro_rules! live {
     ($name:ident, $adapter:expr, $source:expr, $idea:expr, $keywords:expr) => {
+        live!($name, $adapter, $source, $idea, $keywords, dated: false);
+    };
+    ($name:ident, $adapter:expr, $source:expr, $idea:expr, $keywords:expr, dated: $dated:expr) => {
         #[tokio::test]
         #[ignore = "hits the live network; run with --ignored"]
         async fn $name() {
@@ -101,6 +138,9 @@ macro_rules! live {
                 .await
                 .unwrap_or_else(|e| panic!("{} live search errored: {e}", $source));
             assert_live(&matches, $source);
+            if $dated {
+                assert_dated(&matches, $source);
+            }
         }
     };
 }
@@ -110,7 +150,8 @@ live!(
     CratesIo::new(client()),
     SourceId::CratesIo,
     "a fast async runtime for rust",
-    &["async", "runtime"]
+    &["async", "runtime"],
+    dated: true
 );
 
 live!(
@@ -118,7 +159,8 @@ live!(
     GitHub::new(client()),
     SourceId::GitHub,
     "a kubernetes command line tool",
-    &["kubernetes", "cli"]
+    &["kubernetes", "cli"],
+    dated: true
 );
 
 live!(
@@ -126,7 +168,8 @@ live!(
     Npm::new(client()),
     SourceId::Npm,
     "react component library",
-    &["react"]
+    &["react"],
+    dated: true
 );
 
 // KNOWN, ACCEPTED DEGRADATION — not a pending fix. PyPI has retired every keyless
@@ -164,7 +207,8 @@ live!(
     GoPkgDev::new(client()),
     SourceId::Go,
     "web framework for go",
-    &["gin"]
+    &["gin"],
+    dated: true
 );
 
 live!(
@@ -172,7 +216,8 @@ live!(
     Maven::new(client()),
     SourceId::Maven,
     "json serialization library",
-    &["jackson"]
+    &["jackson"],
+    dated: true
 );
 
 live!(
@@ -228,7 +273,8 @@ live!(
     Hex::new(client()),
     SourceId::Hex,
     "an elixir web framework",
-    &["phoenix"]
+    &["phoenix"],
+    dated: true
 );
 
 live!(
@@ -236,7 +282,8 @@ live!(
     ArtifactHub::new(client()),
     SourceId::ArtifactHub,
     "prometheus monitoring helm chart",
-    &["prometheus"]
+    &["prometheus"],
+    dated: true
 );
 
 live!(
@@ -244,7 +291,8 @@ live!(
     Aur::new(client()),
     SourceId::Aur,
     "an aur helper",
-    &["yay"]
+    &["yay"],
+    dated: true
 );
 
 live!(

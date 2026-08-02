@@ -115,6 +115,7 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
             description: description_text,
             popularity: None,
             similarity: 0.0,
+            last_updated: None,
         });
     }
 

@@ -69,6 +69,7 @@ impl SourceAdapter for DockerHub {
                 description: r.short_description.unwrap_or_default(),
                 popularity: r.star_count,
                 similarity: 0.0,
+                last_updated: None,
             })
             .collect())
     }

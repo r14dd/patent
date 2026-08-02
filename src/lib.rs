@@ -33,8 +33,11 @@
 //! [`rank`] (or the async-safe [`rank::rank_async`]) orders matches by
 //! semantic similarity, and [`verdict::assess`]
 //! turns them into an integrity-scoped [`Verdict`] via any [`Llm`] backend
-//! (local Ollama or an OpenAI-compatible API).
+//! (local Ollama or an OpenAI-compatible API). [`Match::last_updated`] carries
+//! the raw normalised timestamp; [`freshness::age`] turns it into the
+//! human label and staleness flag the TUI renders.
 
+pub mod freshness;
 pub mod llm;
 pub mod model;
 pub mod ollama;

@@ -119,6 +119,7 @@ impl SourceAdapter for VsCodeMarketplace {
                     description: e.short_description.unwrap_or_default(),
                     popularity: installs,
                     similarity: 0.0,
+                    last_updated: None,
                 }
             })
             .collect())
