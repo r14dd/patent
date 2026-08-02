@@ -30,6 +30,12 @@ exclude = [
     # Nix dev-environment files — not needed by crate consumers.
     "flake.nix",
     "flake.lock",
+    # Local WIP. It lives under src/ and is untracked but not gitignored, so
+    # `cargo package` sweeps it into the tarball; excluding it here is enforced
+    # by cargo on every publish rather than by remembering to move it aside.
+    # If it ever becomes a real module, the publish verify build fails loudly on
+    # the missing file instead of shipping a broken crate.
+    "src/pipeline.rs",
 ]
 
 [lib]
