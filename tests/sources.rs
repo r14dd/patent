@@ -15,6 +15,7 @@ use patent::sources::go::GoPkgDev;
 use patent::sources::hacker_news::HackerNews;
 use patent::sources::hex::Hex;
 use patent::sources::homebrew::Homebrew;
+use patent::sources::jetbrains::JetBrains;
 use patent::sources::maven::Maven;
 use patent::sources::nixpkgs::Nixpkgs;
 use patent::sources::npm::Npm;
@@ -2479,6 +2480,423 @@ async fn nixpkgs_malformed_body_is_propagated() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// JetBrains Marketplace
+// ---------------------------------------------------------------------------
+
+fn jetbrains_for(server: &MockServer) -> JetBrains {
+    JetBrains::with_base_url(reqwest::Client::new(), server.uri())
+}
+
+fn jetbrains_body() -> serde_json::Value {
+    json!({
+        "plugins": [{
+            "id": 164,
+            "xmlId": "IdeaVIM",
+            "link": "/plugin/164-ideavim",
+            "name": "IdeaVim",
+            "preview": "Bring the power of Vim to your JetBrains IDE.",
+            "downloads": 21_803_835_u64,
+            "pricingModel": "FREE",
+            "cdate": 1_785_747_916_000_i64,
+            "rating": 4.44,
+            "tags": ["Editor", "Keymap"],
+            "vendor": { "name": "JetBrains s.r.o.", "isVerified": true }
+        }],
+        "total": 1,
+        "correctedQuery": ""
+    })
+}
+
+#[tokio::test]
+async fn jetbrains_id_is_jetbrains() {
+    let src = JetBrains::with_base_url(
+        reqwest::Client::new(),
+        "https://plugins.jetbrains.com".to_string(),
+    );
+    assert_eq!(src.id(), SourceId::JetBrains);
+}
+
+#[tokio::test]
+async fn jetbrains_maps_plugins_into_matches() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(jetbrains_body()))
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    let m = &matches[0];
+    assert_eq!(m.name, "IdeaVim");
+    assert_eq!(m.source, SourceId::JetBrains);
+    // Built against the mock server, proving the relative `link` join, not the
+    // live `plugins.jetbrains.com` host.
+    assert_eq!(m.url, format!("{}/plugin/164-ideavim", server.uri()));
+    assert_eq!(
+        m.description,
+        "Bring the power of Vim to your JetBrains IDE."
+    );
+    assert_eq!(m.popularity, Some(21_803_835));
+    // Epoch-millis `cdate`, normalised to whole-second RFC 3339 UTC.
+    assert_eq!(m.last_updated.as_deref(), Some("2026-08-03T09:05:16Z"));
+}
+
+#[tokio::test]
+async fn jetbrains_description_falls_back_to_name_when_preview_missing() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "plugins": [
+            {
+                "name": "NoPreview",
+                "link": "/plugin/1-no-preview"
+            },
+            {
+                "name": "BlankPreview",
+                "link": "/plugin/5-blank-preview",
+                "preview": "   "
+            }
+        ],
+        "total": 2,
+        "correctedQuery": ""
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches[0].description, "NoPreview");
+    // A `preview` present but whitespace-only must fall back the same as an
+    // absent one.
+    assert_eq!(matches[1].description, "BlankPreview");
+}
+
+#[tokio::test]
+async fn jetbrains_truncates_long_descriptions() {
+    let server = MockServer::start().await;
+    let long_preview = "a".repeat(200);
+    let body = json!({
+        "plugins": [{
+            "name": "LongDescPlugin",
+            "link": "/plugin/2-long-desc",
+            "preview": long_preview
+        }],
+        "total": 1,
+        "correctedQuery": ""
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server).search(&query()).await.unwrap();
+    let desc = &matches[0].description;
+    assert_eq!(desc.chars().count(), 121);
+    assert!(desc.ends_with('…'));
+}
+
+#[tokio::test]
+async fn jetbrains_truncates_long_multibyte_descriptions() {
+    // "a".repeat(200) is pure ASCII and proves nothing about char-safety —
+    // truncating by byte offset on a multibyte string would panic or split a
+    // character. Use a non-ASCII repeat to prove `chars().take` is doing the
+    // truncation, not a byte slice.
+    let server = MockServer::start().await;
+    let long_preview = "é".repeat(200);
+    let body = json!({
+        "plugins": [{
+            "name": "MultibyteDescPlugin",
+            "link": "/plugin/7-multibyte-desc",
+            "preview": long_preview
+        }],
+        "total": 1,
+        "correctedQuery": ""
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server).search(&query()).await.unwrap();
+    let desc = &matches[0].description;
+    assert_eq!(desc.chars().count(), 121);
+    assert!(desc.ends_with('…'));
+    assert!(desc.starts_with('é'));
+}
+
+#[tokio::test]
+async fn jetbrains_skips_plugin_with_missing_name() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "plugins": [
+            { "link": "/plugin/3-no-name", "preview": "no name here" },
+            { "name": "", "link": "/plugin/4-empty-name" }
+        ],
+        "total": 2,
+        "correctedQuery": ""
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    assert!(jetbrains_for(&server)
+        .search(&query())
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn jetbrains_skips_plugin_with_missing_link() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "plugins": [
+            { "name": "NoLink" },
+            { "name": "EmptyLink", "link": "" },
+            { "name": "BareHostLink", "link": "plugin/5-bare" }
+        ],
+        "total": 3,
+        "correctedQuery": ""
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    assert!(jetbrains_for(&server)
+        .search(&query())
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn jetbrains_wrong_type_cdate_degrades_to_none_not_error() {
+    // The `lenient` contract: a type change on the date field (a string where a
+    // number used to be) must yield `last_updated: None` and still return the
+    // plugin, not fail the whole response.
+    let server = MockServer::start().await;
+    let body = json!({
+        "plugins": [{
+            "name": "BadDate",
+            "link": "/plugin/6-bad-date",
+            "cdate": "not-a-number"
+        }],
+        "total": 1,
+        "correctedQuery": ""
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].last_updated, None);
+}
+
+#[tokio::test]
+async fn jetbrains_empty_results_is_ok() {
+    let server = MockServer::start().await;
+    let body = json!({ "plugins": [], "total": 0, "correctedQuery": "" });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    assert!(jetbrains_for(&server)
+        .search(&query())
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn jetbrains_server_error_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    assert!(jetbrains_for(&server).search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn jetbrains_malformed_body_is_propagated() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&server)
+        .await;
+
+    let result = jetbrains_for(&server).search(&query()).await;
+    assert!(
+        result.is_err(),
+        "an unparseable body must surface as an error"
+    );
+}
+
+#[tokio::test]
+async fn jetbrains_missing_plugins_key_is_propagated() {
+    // Syntactically valid JSON, but without the `plugins` key the response
+    // can't be deserialized into `SearchResponse` — must be an `Err`, not a
+    // silent empty result.
+    let server = MockServer::start().await;
+    let body = json!({ "total": 0, "correctedQuery": "" });
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let result = jetbrains_for(&server).search(&query()).await;
+    assert!(
+        result.is_err(),
+        "a body missing the `plugins` key must surface as an error"
+    );
+}
+
+// ── progressive keyword narrowing (Fix 1) ───────────────────────────────────
+//
+// `searchPlugins` ANDs every content word, so a realistic multi-keyword idea
+// returns zero hits; the adapter must narrow to fewer, longer keywords until
+// something comes back. These use distinct keyword lengths throughout so the
+// "longest 3"/"longest 2" selection is unambiguous.
+
+fn narrowing_keywords() -> Vec<String> {
+    // Lengths: ide=3, code=4, spell=5, syntax=6, mistakes=8.
+    ["ide", "code", "spell", "syntax", "mistakes"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+fn narrowing_query() -> Query {
+    Query {
+        idea: "an ide plugin that highlights spelling mistakes in code comments".to_string(),
+        keywords: narrowing_keywords(),
+    }
+}
+
+#[tokio::test]
+async fn jetbrains_narrows_to_three_longest_keywords_when_full_query_is_empty() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .and(query_param("search", "ide code spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "plugins": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .and(query_param("search", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(jetbrains_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "IdeaVim");
+}
+
+#[tokio::test]
+async fn jetbrains_falls_back_to_two_longest_keywords() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .and(query_param("search", "ide code spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "plugins": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .and(query_param("search", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "plugins": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .and(query_param("search", "syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(jetbrains_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "IdeaVim");
+}
+
+#[tokio::test]
+async fn jetbrains_all_narrowing_attempts_empty_is_ok_not_err() {
+    let server = MockServer::start().await;
+
+    for q in [
+        "ide code spell syntax mistakes",
+        "spell syntax mistakes",
+        "syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/api/searchPlugins"))
+            .and(query_param("search", q))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "plugins": [] })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let matches = jetbrains_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert!(matches.is_empty());
+}
+
+#[tokio::test]
+async fn jetbrains_short_keyword_set_issues_only_one_request() {
+    // With ≤3 keywords, every narrowing attempt ("3 longest", "2 longest")
+    // is textually identical to the full join — the adapter must dedup them
+    // away rather than resend the same query twice more. `expect(1)` proves
+    // it: without the dedup, this mock would receive three identical
+    // requests (an empty result never breaks the retry loop early).
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/searchPlugins"))
+        .and(query_param("search", "async runtime"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "plugins": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = jetbrains_for(&server).search(&query()).await.unwrap();
+    assert!(matches.is_empty());
+}
+
 // ── last_updated (#29) ──────────────────────────────────────────────────────
 //
 // Three properties per adapter that reports a date:
@@ -2662,6 +3080,15 @@ async fn a_malformed_date_never_fails_its_source() {
                 b
             },
             |u| Box::new(ArtifactHub::with_base_url(test_client(), u)),
+        ),
+        (
+            "/api/searchPlugins",
+            {
+                let mut b = jetbrains_body();
+                b["plugins"][0]["cdate"] = json!("not-a-number"); // string, was a number
+                b
+            },
+            |u| Box::new(JetBrains::with_base_url(test_client(), u)),
         ),
     ];
 

@@ -108,6 +108,7 @@ fn source_color(source: Source) -> Color {
         Source::RubyGems => Color::Magenta,
         Source::DockerHub => Color::Rgb(30, 144, 255),
         Source::VsCodeMarketplace => Color::Rgb(0, 122, 204),
+        Source::JetBrains => Color::Rgb(255, 49, 140),
         Source::NuGet => Color::Rgb(100, 45, 170),
         Source::Homebrew => Color::Rgb(250, 175, 5),
         Source::Packagist => Color::Rgb(119, 123, 180),

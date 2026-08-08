@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.11.0] - 2026-08-09
+
+### Added
+
+- **JetBrains Marketplace as a source**, the 19th. IDE-plugin ideas previously
+  only reached the VS Code Marketplace, so anything already shipped for
+  IntelliJ, PyCharm, GoLand, WebStorm or Rider was invisible to a search that
+  should obviously have found it. Selected for the same `ide` / `plugin` /
+  `extension` / `editor` signals as VS Code, plus the IDE names themselves
+  (`intellij`, `pycharm`, `webstorm`, `goland`, `rider`, `clion`, `datagrip`,
+  `phpstorm`, `rubymine`, `android studio`), and addressable directly as
+  `--sources jetbrains` (`intellij` also works)
+- JetBrains reports a last-updated date (`cdate`), making it the 9th of 19
+  sources to do so, so its matches carry an age and can be flagged `⚑` like any
+  other. The date arrives in the same search response the adapter already
+  fetches, so it costs no extra request
+
+### Fixed
+
+- `searchPlugins` ANDs every content word in the query, so passing a whole idea
+  through returned nothing at all: a 5-to-7-term idea reliably came back with
+  `total: 0` even where a matching plugin existed. The adapter now searches on
+  keywords and, when a query comes back empty, progressively narrows to the 3
+  then 2 longest terms before giving up — measured against the live API, that
+  recovers results for the queries the full set loses. Without it the source
+  would have been listed as searched while being structurally incapable of
+  returning anything, which reads as "nothing out there" rather than "nothing
+  found"
+- The documented source count said 16 in the README and the crate docs; it had
+  actually been 18 since 0.9.0. Now 19 and correct in every place that states it
+- The date table in `src/sources/mod.rs` listed neither half for the VS Code
+  Marketplace, which reports no date. It is now named among the sources that
+  return none, so the table again accounts for every source
+
+### Breaking (library API)
+
+- `Source` gained a `JetBrains` variant. The enum is not `#[non_exhaustive]`,
+  so any downstream exhaustive `match` on `Source` needs a new arm. As with the
+  `Match::last_updated` addition in 0.10.0, the break is documented rather than
+  papered over with a wider one
+
 ## [0.10.0] - 2026-08-02
 
 ### Added

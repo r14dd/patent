@@ -466,7 +466,7 @@ async fn assess_scrubs_broadened_absence_phrasings() {
 async fn assess_scrubs_absence_claims_dressed_up_as_maintenance() {
     // #29 opened a second door to the one claim this tool must never make.
     // With dates in the prompt, "nothing exists" becomes "nothing *maintained*
-    // exists" — which is just as unprovable (only 8 of 18 sources publish a
+    // exists" — which is just as unprovable (only 9 of 19 sources publish a
     // date, so an undated match is not an unmaintained one) and reads just as
     // much like a green light. `sample_matches` floors to Crowded, which is
     // what the model returns here, so the headline survives the floor and it is

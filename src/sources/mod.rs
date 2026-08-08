@@ -23,10 +23,12 @@
 //! | AUR | `LastModified` (epoch secs) |
 //! | Artifact Hub | `ts` (epoch secs) |
 //! | Go | scraped from the rendered "published on" date |
+//! | JetBrains Marketplace | `cdate` (epoch millis, last-updated not creation) |
 //!
 //! Always `None`: **RubyGems**, **Docker Hub**, **NuGet**, **Packagist**,
-//! **Homebrew**, **Hackage** and **Nixpkgs** return no date in their search
-//! responses at all; **PyPI** is bot-walled and returns nothing to parse.
+//! **Homebrew**, **Hackage**, **Nixpkgs** and **VS Code Marketplace** return
+//! no date in their search responses at all; **PyPI** is bot-walled and
+//! returns nothing to parse.
 //! **Hacker News** does expose `created_at`, but that is when a thread was
 //! posted — it says nothing about whether the thing discussed is maintained,
 //! and rendering a 2012 discussion as "stale" would be actively misleading.
@@ -58,6 +60,7 @@ pub mod hackage;
 pub mod hacker_news;
 pub mod hex;
 pub mod homebrew;
+pub mod jetbrains;
 pub mod maven;
 pub mod nixpkgs;
 pub mod npm;
@@ -292,7 +295,25 @@ fn detect_sources(idea: &str) -> HashSet<S> {
         add(&mut s, &[S::DockerHub, S::Go]);
     }
     if idea_contains(idea, &["vscode", "extension", "plugin", "ide", "editor"]) {
-        add(&mut s, &[S::VsCodeMarketplace, S::Npm]);
+        add(&mut s, &[S::VsCodeMarketplace, S::Npm, S::JetBrains]);
+    }
+    if idea_contains(
+        idea,
+        &[
+            "jetbrains",
+            "intellij",
+            "pycharm",
+            "webstorm",
+            "goland",
+            "rider",
+            "clion",
+            "datagrip",
+            "phpstorm",
+            "rubymine",
+            "android studio",
+        ],
+    ) {
+        s.insert(S::JetBrains);
     }
 
     // ── Fallback: no signal at all → broad sweep ────────────────────────
@@ -326,6 +347,7 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
         S::Aur => Box::new(aur::Aur::new(client)),
         S::Hackage => Box::new(hackage::Hackage::new(client)),
         S::Nixpkgs => Box::new(nixpkgs::Nixpkgs::new(client)),
+        S::JetBrains => Box::new(jetbrains::JetBrains::new(client)),
     }
 }
 
@@ -591,6 +613,7 @@ mod tests {
             S::Aur,
             S::Hackage,
             S::Nixpkgs,
+            S::JetBrains,
         ] {
             assert!(
                 seen.contains(&variant),
@@ -633,6 +656,25 @@ mod tests {
     }
 
     #[test]
+    fn jetbrains_ide_names_select_jetbrains_even_without_ide_keyword() {
+        // Guards the dedicated IDE-name branch specifically: these ideas name
+        // a JetBrains product but avoid "ide"/"plugin"/"editor", which would
+        // otherwise select JetBrains via the pre-existing vscode/ide branch
+        // instead and mask this branch being deleted.
+        for idea in [
+            "a pycharm helper for databases",
+            "a rider tool for unit testing",
+            "a clion helper for cmake projects",
+        ] {
+            let s = detect_sources(idea);
+            assert!(
+                s.contains(&S::JetBrains),
+                "JetBrains missing for {idea:?}: {s:?}"
+            );
+        }
+    }
+
+    #[test]
     fn no_signal_falls_back_to_broad_sweep() {
         let s = detect_sources("asdf qwer zxcv hjkl");
         assert!(s.contains(&S::Npm));
@@ -656,6 +698,14 @@ mod tests {
             S::VsCodeMarketplace
         );
         assert_eq!("nix".parse::<crate::model::Source>().unwrap(), S::Nixpkgs);
+        assert_eq!(
+            "jetbrains".parse::<crate::model::Source>().unwrap(),
+            S::JetBrains
+        );
+        assert_eq!(
+            "intellij".parse::<crate::model::Source>().unwrap(),
+            S::JetBrains
+        );
         assert!(
             "unknown".parse::<crate::model::Source>().is_err(),
             "an unrecognised source name must return Err"

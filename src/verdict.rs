@@ -194,7 +194,7 @@ const ABSENCE_PHRASES: &[&str] = &[
     // Maintenance-flavoured absence. Once matches carry a last-updated date the
     // model can assert absence in a second way — not "nothing exists" but
     // "nothing *maintained* exists" — and that is the same unprovable claim:
-    // only 8 of the 18 sources publish a date at all, so an undated match is
+    // only 9 of the 19 sources publish a date at all, so an undated match is
     // not an unmaintained one. These are the phrasings that generalise beyond
     // what was searched; saying a *specific* match is unmaintained ("the
     // closest match is no longer maintained") stays legal, because that is

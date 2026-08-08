@@ -2,10 +2,11 @@
 //!
 //! Takes a plain-English dev-tool idea and searches the open-source ecosystem —
 //! crates.io, npm, PyPI, GitHub, Go, Maven, NuGet, RubyGems, Docker Hub,
-//! Homebrew, Packagist, Hex, Artifact Hub, AUR, Nixpkgs, the VS Code
-//! Marketplace, and Hacker News — for prior art, then gives an honest,
-//! scoped verdict on whether it's already been built. The exact set searched is
-//! chosen per query; whichever sources actually responded are always surfaced.
+//! Homebrew, Packagist, Hex, Artifact Hub, AUR, Hackage, Nixpkgs, the VS Code
+//! Marketplace, the JetBrains Marketplace, and Hacker News — for prior art,
+//! then gives an honest, scoped verdict on whether it's already been built.
+//! The exact set searched is chosen per query; whichever sources actually
+//! responded are always surfaced.
 //!
 //! **Integrity principle:** this tool can prove something *exists*, but never
 //! that it *doesn't* — it only searched some sources. All output is scoped to

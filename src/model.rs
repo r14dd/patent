@@ -42,6 +42,8 @@ pub enum Source {
     DockerHub,
     #[serde(rename = "vscode-marketplace", alias = "VsCodeMarketplace")]
     VsCodeMarketplace,
+    #[serde(rename = "jetbrains", alias = "JetBrains")]
+    JetBrains,
     #[serde(rename = "nuget", alias = "NuGet")]
     NuGet,
     #[serde(rename = "homebrew", alias = "Homebrew")]
@@ -74,6 +76,7 @@ impl Source {
             Self::RubyGems,
             Self::DockerHub,
             Self::VsCodeMarketplace,
+            Self::JetBrains,
             Self::NuGet,
             Self::Homebrew,
             Self::Packagist,
@@ -98,6 +101,7 @@ impl Source {
             Self::RubyGems => "rubygems",
             Self::DockerHub => "docker-hub",
             Self::VsCodeMarketplace => "vscode-marketplace",
+            Self::JetBrains => "jetbrains",
             Self::NuGet => "nuget",
             Self::Homebrew => "homebrew",
             Self::Packagist => "packagist",
@@ -125,6 +129,7 @@ impl std::str::FromStr for Source {
             "rubygems" => Ok(Self::RubyGems),
             "docker-hub" | "docker_hub" | "dockerhub" | "docker" => Ok(Self::DockerHub),
             "vscode-marketplace" | "vscode_marketplace" | "vscode" => Ok(Self::VsCodeMarketplace),
+            "jetbrains" | "intellij" => Ok(Self::JetBrains),
             "nuget" => Ok(Self::NuGet),
             "homebrew" | "brew" => Ok(Self::Homebrew),
             "packagist" => Ok(Self::Packagist),
@@ -154,6 +159,7 @@ impl std::fmt::Display for Source {
             Self::RubyGems => f.write_str("RubyGems"),
             Self::DockerHub => f.write_str("Docker Hub"),
             Self::VsCodeMarketplace => f.write_str("VS Code"),
+            Self::JetBrains => f.write_str("JetBrains"),
             Self::NuGet => f.write_str("NuGet"),
             Self::Homebrew => f.write_str("Homebrew"),
             Self::Packagist => f.write_str("Packagist"),
@@ -256,7 +262,7 @@ mod tests {
 
     #[test]
     fn source_all_returns_every_variant() {
-        assert_eq!(Source::all().len(), 18);
+        assert_eq!(Source::all().len(), 19);
     }
 
     #[test]

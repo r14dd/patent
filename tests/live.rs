@@ -31,6 +31,7 @@ use patent::sources::hackage::Hackage;
 use patent::sources::hacker_news::HackerNews;
 use patent::sources::hex::Hex;
 use patent::sources::homebrew::Homebrew;
+use patent::sources::jetbrains::JetBrains;
 use patent::sources::maven::Maven;
 use patent::sources::nixpkgs::Nixpkgs;
 use patent::sources::npm::Npm;
@@ -90,7 +91,7 @@ fn assert_live(matches: &[Match], expected: SourceId) {
     eprintln!("✓ {expected}: {} matches", matches.len());
 }
 
-/// Extra assertions for the eight sources that publish a last-updated date
+/// Extra assertions for the nine sources that publish a last-updated date
 /// (see the table in `src/sources/mod.rs`).
 ///
 /// This is the drift the mocked suite structurally cannot catch: `tests/sources.rs`
@@ -301,6 +302,15 @@ live!(
     SourceId::Hackage,
     "a haskell json parsing library",
     &["json"]
+);
+
+live!(
+    live_jetbrains,
+    JetBrains::new(client()),
+    SourceId::JetBrains,
+    "a jetbrains plugin for kubernetes yaml files",
+    &["plugin", "kubernetes", "yaml"],
+    dated: true
 );
 
 // Guards two things a mocked test structurally cannot: that the Elasticsearch
