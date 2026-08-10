@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: taiki-e/install-action@v2.85.5
+      - uses: taiki-e/install-action@v2.85.10
         with:
           tool: cargo-audit
       # RUSTSEC-2024-0436: `paste` is unmaintained but is only reachable as a
