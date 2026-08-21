@@ -78,7 +78,7 @@ dirs = "6"
 toml = "1.1"
 
 # Ranking (M3) — semantic embeddings, model downloads on first run
-fastembed = "5"
+fastembed = "6"
 
 # TUI (M5)
 ratatui = "0.30"
