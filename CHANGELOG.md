@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.1]
+
+### Changed
+
+- Dependency refresh: tokio 1.53, anyhow 1.0.104, thiserror 2.0.19,
+  futures 0.3.33, async-trait 0.1.91
+
+### Fixed
+
+- README now states the actual minimum Debian requirement for the prebuilt
+  binary (glibc 2.38, i.e. Debian 13/trixie) — thanks @MalTeeez
+
 ## [0.11.0]
 
 ### Added

@@ -11,3 +11,5 @@
 
 # Nix
 /result
+HANDOFF.md
+graphify-out/
