@@ -47,7 +47,7 @@ cargo install patent
 
 Pre-built binaries are on the [releases page](https://github.com/r14dd/patent/releases).
 
-**Ollama** (optional) powers the LLM verdict — install from [ollama.com](https://ollama.com), then `ollama pull qwen2.5`. Use `--fast` to skip it entirely.
+**Ollama** (optional) powers the LLM verdict — install from [ollama.com](https://ollama.com), then `ollama pull qwen3.5`. Use `--fast` to skip it entirely.
 
 **GitHub token** (optional) — set `GITHUB_TOKEN` to raise the search rate limit from 10 to 30 requests/minute.
 
@@ -83,7 +83,7 @@ patent "kubernetes log viewer" --api-base https://api.openai.com/v1 --model gpt-
 |---|---|---|
 | `--fast` | no LLM, no wait — verdict derived from similarity scores | — |
 | `--json` | stdout JSON instead of the TUI | — |
-| `--model <MODEL>` | model name for the verdict; or `PATENT_MODEL` | `qwen2.5` |
+| `--model <MODEL>` | model name for the verdict; or `PATENT_MODEL` | `qwen3.5` |
 | `--api-base <URL>` | OpenAI-compatible base URL (must end in `/v1`); or `PATENT_API_BASE` | — |
 | `--api-key <KEY>` | API key for `--api-base`; or `PATENT_API_KEY` / `OPENAI_API_KEY` | — |
 | `--limit <N>` | max matches to keep after ranking | `50` |

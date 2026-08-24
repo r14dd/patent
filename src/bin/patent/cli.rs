@@ -16,7 +16,7 @@ pub struct Cli {
     #[arg(long, default_value_t = patent::rank::DEFAULT_LIMIT as u32, value_parser = clap::value_parser!(u32).range(1..))]
     pub limit: u32,
 
-    /// LLM model for the verdict. Defaults to qwen2.5 for Ollama; required with --api-base.
+    /// LLM model for the verdict. Defaults to qwen3.5 for Ollama; required with --api-base.
     /// Can also be set via PATENT_MODEL or config file.
     #[arg(long, env = "PATENT_MODEL")]
     pub model: Option<String>,

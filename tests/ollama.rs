@@ -38,6 +38,7 @@ async fn generate_sends_model_and_prompt() {
                 "model": "qwen2.5",
                 "prompt": "say hi",
                 "stream": false,
+                "think": false,
                 "options": {
                     "temperature": 0.0,
                     "num_predict": 512,
@@ -109,4 +110,12 @@ async fn generate_maps_model_not_found_to_llm_rejected() {
         matches!(err, patent::Error::LlmRejected(_)),
         "expected LlmRejected, got: {err:?}"
     );
+}
+
+/// The default model is a thinking model, so `think: false` above is load-bearing:
+/// without it the reasoning trace consumes the whole `num_predict` budget and
+/// Ollama returns an empty `response` (verified live against qwen3.5).
+#[test]
+fn default_model_is_qwen35() {
+    assert_eq!(patent::ollama::DEFAULT_MODEL, "qwen3.5");
 }

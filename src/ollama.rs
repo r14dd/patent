@@ -7,9 +7,9 @@ use crate::llm::Llm;
 /// Default Ollama endpoint.
 pub const DEFAULT_ENDPOINT: &str = "http://localhost:11434";
 
-/// Default generation model. `qwen2.5` (7B) for quality; `qwen2.5:3b` if RAM is
+/// Default generation model. `qwen3.5` (9B) for quality; `qwen2.5:3b` if RAM is
 /// tight. Override via `--model`.
-pub const DEFAULT_MODEL: &str = "qwen2.5";
+pub const DEFAULT_MODEL: &str = "qwen3.5";
 
 /// A thin handle over the Ollama generate API.
 #[derive(Debug, Clone)]
@@ -43,6 +43,14 @@ impl Llm for Ollama {
             "model": self.model,
             "prompt": prompt,
             "stream": false,
+            // Thinking models (qwen3.5 and later) otherwise spend the whole
+            // `num_predict` budget on a reasoning trace that Ollama returns in
+            // a separate `thinking` field, leaving `response` empty -- every
+            // verdict would silently fall back. Measured: 512 tokens of
+            // thinking and no answer, vs 11 tokens with thinking off. The
+            // verdict is a small fixed JSON object, so the trace buys nothing.
+            // Accepted (HTTP 200, ignored) by non-thinking models like qwen2.5.
+            "think": false,
             "options": {
                 "temperature": 0.0,
                 "num_predict": 512,

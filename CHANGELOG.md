@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Default Ollama model is now `qwen3.5` (was `qwen2.5`).** Existing installs
+  need `ollama pull qwen3.5` — without it the verdict call returns
+  model-not-found and falls back to the no-LLM verdict (scoped and caveated as
+  always, but less specific). Pass `--model qwen2.5` or set `PATENT_MODEL` to
+  stay on the old default
+- The Ollama request now sends `"think": false`. Thinking models spend the
+  whole `num_predict` budget on a reasoning trace that Ollama returns in a
+  separate field, leaving `response` empty — measured 512 tokens of thinking
+  and no answer, vs 11 tokens with thinking off. Non-thinking models ignore the
+  field. It needs an Ollama daemon that knows `think` (0.9.0+); older daemons
+  are not tested against this
+
 ## [0.11.2]
 
 ### Security
