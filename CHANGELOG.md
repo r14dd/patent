@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.11.2]
+
+### Security
+
+- h2 bumped to 0.4.18 for RUSTSEC-2026-0258. It comes in under `reqwest`, so
+  every source adapter sits on top of it — patched rather than waited out
+
+### Changed
+
+- fastembed 5 → 6. The ranking model stays pinned to `AllMiniLML6V2` and the
+  on-disk cache layout is unchanged, so an existing model cache is reused as-is
+  and upgrading does not re-download the ~80 MB model
+- Dependency refresh: serde 1.0.229, time 0.3.55, thiserror 2.0.20,
+  async-trait 0.1.92, futures 0.3.34, toml 1.1.4, serde_json 1.0.151,
+  clap_complete 4.6.9, open 5.4.1
+
+### Fixed
+
+- **The Go source reported itself as failed whenever it simply found nothing.**
+  A genuine pkg.go.dev "no matches" page is ~33 KB, so it always tripped the
+  drift guard (`zero packages parsed from a non-trivial response`) and Go was
+  listed as *not reached*. A source that answered "nothing found" is reached,
+  and calling it a failure overstates how little the search actually covered.
+  The two cases are now told apart by a marker that, across the queries probed
+  live, pkg.go.dev rendered on every zero-result page and on no page that had
+  results; real markup drift is still reported as drift
+- pkg.go.dev ANDs every search term, so a whole idea passed through as-is can
+  return nothing even where matching packages exist — measured live, a 7-term
+  idea returned zero results while 2–3 of its longest terms returned over a
+  hundred. (Not every long query is affected: a 5-term idea whose terms are all
+  common in the target's docs still returned plenty.) The adapter now
+  progressively narrows to the 3 then 2 longest terms before giving up, the
+  same fix the JetBrains adapter got in 0.11.0 for the same underlying
+  behaviour. Where it bit, Go was contributing nothing to a search while being
+  listed among the sources checked
+- Go package names came through with the module path glued on, newlines and
+  indentation included (`httprouter\n  (github.com/julienschmidt/httprouter)`),
+  because the title anchor nests the path in a child span and the scrape walked
+  all descendants. Only the anchor's own text is read now
+
+### Note on exit codes
+
+- Because Go now returns results where it previously returned none, a query
+  whose prior art sits mainly in the Go ecosystem can land on a higher
+  saturation level than it did in 0.11.1 — and so on a different exit code
+  (`0` open / `1` crowded / `2` saturated). The contract is unchanged; the
+  input to it is simply less incomplete. Worth knowing if you script on it
+
 ## [0.11.1]
 
 ### Changed
