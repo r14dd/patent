@@ -1276,6 +1276,159 @@ async fn go_empty_results_is_ok() {
     assert!(src.search(&query()).await.unwrap().is_empty());
 }
 
+/// A real pkg.go.dev zero-result page: large, and carrying the "no matches"
+/// gopher. Padded past the 2 KB drift threshold on purpose -- the live page is
+/// ~33 KB, so the threshold alone can never tell it apart from drift.
+fn go_no_matches_html() -> String {
+    format!(
+        r#"<!doctype html><html><body>
+      <div data-test-id="gopher-message">It looks like there are no matches for your search.</div>
+      <!-- {padding} -->
+    </body></html>"#,
+        padding = "x".repeat(2_500)
+    )
+}
+
+/// The real pkg.go.dev title anchor: package name as the anchor's own text,
+/// then a nested span holding the module path, separated by markup newlines.
+fn go_nested_title_html() -> String {
+    r#"<!doctype html><html><body>
+      <div class="SearchSnippet">
+        <h2>
+          <a href="/github.com/julienschmidt/httprouter" data-test-id="snippet-title">
+            httprouter
+            <span class="SearchSnippet-header-path">(github.com/julienschmidt/httprouter)</span>
+          </a>
+        </h2>
+        <p class="SearchSnippet-synopsis">A trie based high performance HTTP request router.</p>
+      </div>
+    </body></html>"#
+        .to_string()
+}
+
+#[tokio::test]
+async fn go_name_excludes_the_nested_module_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(go_nested_title_html()))
+        .mount(&server)
+        .await;
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    let matches = src.search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    // Not "httprouter (github.com/julienschmidt/httprouter)", and no embedded
+    // newlines or run-together indentation from the surrounding markup.
+    assert_eq!(matches[0].name, "httprouter");
+    assert!(!matches[0].name.contains('\n'));
+}
+
+#[tokio::test]
+async fn go_genuine_no_matches_is_not_reported_as_drift() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(go_no_matches_html()))
+        .mount(&server)
+        .await;
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    // Must be Ok(empty), not Err: a source that answered "nothing found" is
+    // reached, and reporting it as "not reached" overstates how little we know.
+    assert!(src.search(&query()).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn go_non_trivial_page_without_the_no_matches_marker_is_drift() {
+    let server = MockServer::start().await;
+    let html = format!(
+        "<!doctype html><html><body><div>{}</div></body></html>",
+        "x".repeat(2_500)
+    );
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(html))
+        .mount(&server)
+        .await;
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&query()).await.is_err());
+}
+
+#[tokio::test]
+async fn go_narrows_to_three_longest_keywords_when_full_query_is_empty() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .and(query_param("q", "ide code spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(go_no_matches_html()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .and(query_param("q", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(go_html()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    let matches = src.search(&narrowing_query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "cobra");
+}
+
+#[tokio::test]
+async fn go_falls_back_to_two_longest_keywords() {
+    let server = MockServer::start().await;
+
+    for q in ["ide code spell syntax mistakes", "spell syntax mistakes"] {
+        Mock::given(method("GET"))
+            .and(path("/search"))
+            .and(query_param("q", q))
+            .respond_with(ResponseTemplate::new(200).set_body_string(go_no_matches_html()))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/search"))
+        .and(query_param("q", "syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(go_html()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    let matches = src.search(&narrowing_query()).await.unwrap();
+    assert_eq!(matches.len(), 1);
+}
+
+#[tokio::test]
+async fn go_all_narrowing_attempts_empty_is_ok_not_err() {
+    let server = MockServer::start().await;
+
+    for q in [
+        "ide code spell syntax mistakes",
+        "spell syntax mistakes",
+        "syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/search"))
+            .and(query_param("q", q))
+            .respond_with(ResponseTemplate::new(200).set_body_string(go_no_matches_html()))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let src = GoPkgDev::with_base_url(reqwest::Client::new(), server.uri());
+    assert!(src.search(&narrowing_query()).await.unwrap().is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // Maven Central (Solr JSON)
 // ---------------------------------------------------------------------------

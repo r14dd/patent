@@ -1,8 +1,11 @@
 //! Go source — scrapes `https://pkg.go.dev/search?q=`.
 //!
 //! pkg.go.dev has no public JSON search API, so we parse the HTML results page.
-//! Brittle by nature — if the markup changes the parse yields nothing, which is
-//! treated like any empty result.
+//! Brittle by nature — if the markup changes, a non-trivial page that parses to
+//! zero packages is reported as drift (`Error::Parse`) so the source is surfaced
+//! as "not reached" rather than silently reading as "nothing out there". A page
+//! that genuinely has no matches is told apart from drift by its own marker and
+//! returns an ordinary empty result.
 
 use scraper::{Html, Selector};
 
@@ -12,6 +15,22 @@ use crate::model::{Match, Query, Source};
 use crate::{Error, Result};
 
 const DEFAULT_BASE_URL: &str = "https://pkg.go.dev";
+
+/// Picks the `n` longest keywords, preserving their original order (not sorted
+/// by length) — see [`SourceAdapter::search`] below for why. Deliberately a
+/// copy of the JetBrains adapter's helper rather than a shared one: adapters
+/// keep their private helpers local (as `truncate` already is), and neither is
+/// reachable across modules.
+fn narrowed(keywords: &[String], n: usize) -> String {
+    let mut idx: Vec<usize> = (0..keywords.len()).collect();
+    idx.sort_by(|&a, &b| keywords[b].len().cmp(&keywords[a].len()));
+    idx.truncate(n);
+    idx.sort_unstable();
+    idx.into_iter()
+        .map(|i| keywords[i].as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 #[derive(Debug, Clone)]
 pub struct GoPkgDev {
     client: reqwest::Client,
@@ -36,19 +55,49 @@ impl SourceAdapter for GoPkgDev {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/search", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let html = self
-            .client
-            .get(&url)
-            .query(&[("q", q.as_str()), ("m", "package")])
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
+        // pkg.go.dev ANDs every term, so a realistic multi-keyword idea
+        // reliably returns nothing even where a matching package exists --
+        // measured live, a 7-term idea returns zero results while 2-3 of its
+        // longest terms return 100+. Progressively narrow to fewer, longer
+        // (more content-bearing) keywords until something comes back, skipping
+        // any narrowing that repeats a query string already tried. Same fix as
+        // the JetBrains adapter's, for the same reason.
+        let mut candidates = Vec::new();
+        for q in [
+            query.keywords.join(" "),
+            narrowed(&query.keywords, 3),
+            narrowed(&query.keywords, 2),
+        ] {
+            if !q.is_empty() && !candidates.contains(&q) {
+                candidates.push(q);
+            }
+        }
+        if candidates.is_empty() {
+            // No keywords at all: fall back to the raw idea rather than
+            // sending an empty `q` param.
+            candidates.push(query.idea.clone());
+        }
 
-        parse_search_html(&html, &self.base_url)
+        let mut matches = Vec::new();
+        for q in &candidates {
+            let html = self
+                .client
+                .get(&url)
+                .query(&[("q", q.as_str()), ("m", "package")])
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await?;
+
+            matches = parse_search_html(&html, &self.base_url)?;
+            if !matches.is_empty() {
+                break;
+            }
+        }
+
+        Ok(matches)
     }
 }
 
@@ -73,7 +122,18 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
             continue;
         };
         let href = link.value().attr("href").unwrap_or("");
-        let name = link.text().collect::<String>().trim().to_string();
+        // The title anchor holds the package name as its own text, then a
+        // nested `(github.com/owner/repo)` span. `text()` walks descendants, so
+        // it would glue the module path onto the name -- complete with the
+        // markup's newlines and indentation. Read only the anchor's direct text
+        // nodes, and collapse the remaining whitespace.
+        let name = link
+            .children()
+            .filter_map(|n| n.value().as_text().map(|t| t.to_string()))
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         if name.is_empty() {
             continue;
         }
@@ -110,6 +170,20 @@ fn parse_search_html(html: &str, base_url: &str) -> Result<Vec<Match>> {
 
         if matches.len() >= 20 {
             break;
+        }
+    }
+
+    // A genuine "no matches" page is a real answer, not drift. pkg.go.dev
+    // renders it with a gopher illustration carrying this test id, present on
+    // every zero-result page and on no page that has results (verified live).
+    // Without this check the drift guard below always fires -- the empty page
+    // is ~33 KB -- so Go was reported "not reached" whenever it simply found
+    // nothing, which reads as a failed source rather than a clean result.
+    if matches.is_empty() {
+        let gopher = Selector::parse("[data-test-id='gopher-message']")
+            .map_err(|e| Error::Parse(format!("bad selector: {e}")))?;
+        if document.select(&gopher).next().is_some() {
+            return Ok(matches);
         }
     }
 
