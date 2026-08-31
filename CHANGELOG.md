@@ -33,6 +33,22 @@
   admits is dropped by similarity ranking. An empty result was never reported
   as a failure, so this was silently thinning the evidence behind a verdict
   rather than surfacing itself
+- **The AUR was reporting refused searches as empty ones.** Its RPC answers
+  HTTP 200 even when it declines a query, flagging the refusal only in the body
+  (`{"type":"error","error":"Too many package results."}`); the adapter decoded
+  just the `results` array, so a refusal arrived as a successful search that
+  found nothing — the one claim this tool must never make on a source's behalf.
+  The error fields are now decoded and acted on: a refusal for matching too
+  much is retried against package names alone, which stays under the server's
+  result ceiling (`port` is refused when descriptions are searched too, and
+  returns 636 packages without them), and any other RPC error — as well as a
+  name-only retry that is refused in its turn — surfaces the source as "not
+  reached" instead of as a clean empty. Name-only matching stays
+  the fallback rather than the default, because it costs real recall
+  (`process`: 1503 packages against 78). The AUR also matches the whole query
+  string against one package, so it now narrows to a single keyword like Maven
+  and NuGet, and caps each step at the twenty most voted-for packages, since a
+  broad keyword returns hundreds unranked
 - The keyword-narrowing helper is now shared (`sources::narrowing_candidates`)
   instead of copied per adapter
 

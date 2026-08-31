@@ -296,6 +296,24 @@ live!(
     dated: true
 );
 
+/// The AUR refuses a term that matches too much with an HTTP 200 error body,
+/// which the adapter answers by matching names only. Mocks prove the handling
+/// but not the trigger, so this pins the live pairing: "library" is refused in
+/// the default name+description mode and must still come back with packages.
+#[tokio::test]
+#[ignore = "hits the live AUR RPC"]
+async fn live_aur_recovers_from_a_refused_query() {
+    let matches = Aur::new(client())
+        .search(&query("a shared library", &["library"]))
+        .await
+        .expect("a refused query must fall back to name matching, not fail");
+    assert_live(&matches, SourceId::Aur);
+    println!(
+        "\u{2713} AUR: {} matches after a refused query",
+        matches.len()
+    );
+}
+
 live!(
     live_hackage,
     Hackage::new(client()),

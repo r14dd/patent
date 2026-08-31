@@ -2458,6 +2458,7 @@ async fn aur_sends_search_query_params() {
         .and(path("/rpc/"))
         .and(query_param("v", "5"))
         .and(query_param("type", "search"))
+        .and(query_param("by", "name-desc"))
         .and(query_param("arg", "async runtime"))
         .respond_with(ResponseTemplate::new(200).set_body_json(aur_body()))
         .expect(1)
@@ -2491,6 +2492,91 @@ async fn aur_server_error_is_propagated() {
         .await;
 
     assert!(aur_for(&server).search(&query()).await.is_err());
+}
+
+/// The RPC refuses over-broad terms with **HTTP 200** and an error body. Name
+/// matching survives terms that name+description matching is refused for, so
+/// the refusal costs recall for that step, not the whole source.
+#[tokio::test]
+async fn aur_too_many_results_retries_against_names_only() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .and(query_param("by", "name-desc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "error": "Too many package results.",
+            "resultcount": 0,
+            "results": [],
+            "type": "error"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .and(query_param("by", "name"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(aur_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = aur_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].name, "ccache");
+}
+
+/// An RPC error the fallback cannot get past must reach the caller as a failed
+/// source. Decoding only `results` would report the refusal as a successful
+/// search that found nothing — the one thing this tool must never claim.
+#[tokio::test]
+async fn aur_error_body_fails_the_source_instead_of_reporting_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "error": "Incorrect request type specified.",
+            "resultcount": 0,
+            "results": [],
+            "type": "error"
+        })))
+        .mount(&server)
+        .await;
+
+    let err = aur_for(&server).search(&query()).await.unwrap_err();
+    assert!(
+        matches!(err, patent::Error::Unavailable(_)),
+        "a 200 carrying an RPC error must not decode to an empty result, got: {err:?}"
+    );
+}
+
+/// A single broad keyword matches hundreds of unranked AUR packages, so each
+/// step keeps only the most voted-for handful. Without the cap, narrowing down
+/// to one keyword would flood the ranker with the tail.
+#[tokio::test]
+async fn aur_keeps_only_the_top_voted_packages() {
+    let server = MockServer::start().await;
+    let results: Vec<_> = (0..25)
+        .map(|i| {
+            json!({
+                "Name": format!("pkg-{i}"),
+                "Description": "a package",
+                "NumVotes": i,
+            })
+        })
+        .collect();
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "resultcount": 25, "results": results })),
+        )
+        .mount(&server)
+        .await;
+
+    let matches = aur_for(&server).search(&query()).await.unwrap();
+    assert_eq!(matches.len(), 20, "each step is capped");
+    assert_eq!(matches[0].name, "pkg-24", "the most voted-for comes first");
+    assert_eq!(matches[19].name, "pkg-5");
 }
 
 // ---------------------------------------------------------------------------
@@ -3512,4 +3598,38 @@ async fn homebrew_narrows_against_the_cached_catalog() {
         .unwrap();
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].name, "proselint");
+}
+
+/// The AUR matches the whole `arg` against one package, so like Maven and NuGet
+/// it only recovers at a single keyword.
+#[tokio::test]
+async fn aur_narrows_all_the_way_to_a_single_keyword() {
+    let server = MockServer::start().await;
+    for empty in [
+        "ide code spell syntax mistakes",
+        "spell syntax mistakes",
+        "syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/rpc/"))
+            .and(query_param("arg", empty))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "resultcount": 0, "results": [], "type": "search" })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/rpc/"))
+        .and(query_param("arg", "mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(aur_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = aur_for(&server).search(&narrowing_query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].name, "ccache");
 }
