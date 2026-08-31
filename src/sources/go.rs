@@ -16,21 +16,6 @@ use crate::{Error, Result};
 
 const DEFAULT_BASE_URL: &str = "https://pkg.go.dev";
 
-/// Picks the `n` longest keywords, preserving their original order (not sorted
-/// by length) — see [`SourceAdapter::search`] below for why. Deliberately a
-/// copy of the JetBrains adapter's helper rather than a shared one: adapters
-/// keep their private helpers local (as `truncate` already is), and neither is
-/// reachable across modules.
-fn narrowed(keywords: &[String], n: usize) -> String {
-    let mut idx: Vec<usize> = (0..keywords.len()).collect();
-    idx.sort_by(|&a, &b| keywords[b].len().cmp(&keywords[a].len()));
-    idx.truncate(n);
-    idx.sort_unstable();
-    idx.into_iter()
-        .map(|i| keywords[i].as_str())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
 #[derive(Debug, Clone)]
 pub struct GoPkgDev {
     client: reqwest::Client,
@@ -59,25 +44,8 @@ impl SourceAdapter for GoPkgDev {
         // pkg.go.dev ANDs every term, so a realistic multi-keyword idea
         // reliably returns nothing even where a matching package exists --
         // measured live, a 7-term idea returns zero results while 2-3 of its
-        // longest terms return 100+. Progressively narrow to fewer, longer
-        // (more content-bearing) keywords until something comes back, skipping
-        // any narrowing that repeats a query string already tried. Same fix as
-        // the JetBrains adapter's, for the same reason.
-        let mut candidates = Vec::new();
-        for q in [
-            query.keywords.join(" "),
-            narrowed(&query.keywords, 3),
-            narrowed(&query.keywords, 2),
-        ] {
-            if !q.is_empty() && !candidates.contains(&q) {
-                candidates.push(q);
-            }
-        }
-        if candidates.is_empty() {
-            // No keywords at all: fall back to the raw idea rather than
-            // sending an empty `q` param.
-            candidates.push(query.idea.clone());
-        }
+        // longest terms return 100+.
+        let candidates = super::narrowing_candidates(query, 2);
 
         let mut matches = Vec::new();
         for q in &candidates {

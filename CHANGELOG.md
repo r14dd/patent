@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Reasoning models no longer silently degrade the verdict on `--api-base`.**
+  Three things were wrong at once. The token budget was 512, which a reasoning
+  model can spend entirely on its trace before writing any answer, so the
+  verdict came back empty — it is now 2048. Models in the DeepSeek-R1 family
+  emit that trace inline as a `<think>…</think>` preamble, which is now
+  stripped before the response is parsed; the trace is dropped *before* the
+  markdown-fence scan, because a trace often drafts a fenced JSON block of its
+  own and reading the draft would produce a confident wrong verdict rather than
+  an honest parse failure. And OpenAI's own reasoning models (o-series, GPT-5)
+  reject both `max_tokens` and a non-default `temperature` outright, so a
+  request refused for exactly that reason is retried once with
+  `max_completion_tokens` and no `temperature`. The retry is triggered by the
+  server's own error message rather than by the model name, since proxies
+  rename models freely, and every other OpenAI-compatible server keeps the
+  original request unchanged. A trace with no answer after it still fails to
+  parse and falls back, which is the honest outcome
+- **Seven sources were returning nothing for realistic ideas.** NuGet, RubyGems,
+  Homebrew, Packagist, Artifact Hub, Hacker News and Maven Central all AND
+  every search term, so a seven-keyword idea matched no package even where
+  plenty exist — measured live, five of them returned zero results for an idea
+  that a couple of its keywords answer with twenty. They now narrow
+  progressively (the full keyword set, then the three longest keywords, then
+  the two longest) until a query comes back with something, which is the fix Go
+  and the JetBrains Marketplace already carried. NuGet, Artifact Hub and Maven
+  index strictly enough that even two terms return nothing, so those three
+  narrow one step further, to the single longest keyword; the extra noise that
+  admits is dropped by similarity ranking. An empty result was never reported
+  as a failure, so this was silently thinning the evidence behind a verdict
+  rather than surfacing itself
+- The keyword-narrowing helper is now shared (`sources::narrowing_candidates`)
+  instead of copied per adapter
+
 ## [0.12.0]
 
 ### Changed

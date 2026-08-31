@@ -3293,3 +3293,223 @@ async fn go_survives_an_unparseable_rendered_date() {
         assert_eq!(m[0].last_updated, None);
     }
 }
+
+// ── progressive keyword narrowing, the ANDing registries ────────────────────
+//
+// Measured live against a 7-term idea: these sources return zero results for
+// the full keyword set while 2 of its longest terms return plenty. Each test
+// mocks the full query to empty and the narrowed one to real results, so it
+// fails without the narrowing loop.
+
+#[tokio::test]
+async fn nuget_narrows_all_the_way_to_a_single_keyword() {
+    let server = MockServer::start().await;
+    for empty in [
+        "ide code spell syntax mistakes",
+        "spell syntax mistakes",
+        "syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/query"))
+            .and(query_param("q", empty))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/query"))
+        .and(query_param("q", "mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(nuget_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = NuGet::with_search_url(Client::new(), server.uri())
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "Newtonsoft.Json");
+}
+
+#[tokio::test]
+async fn rubygems_narrows_when_the_full_query_is_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/search.json"))
+        .and(query_param("query", "ide code spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/search.json"))
+        .and(query_param("query", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rubygems_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = RubyGems::with_base_url(Client::new(), server.uri())
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "rails");
+}
+
+#[tokio::test]
+async fn packagist_narrows_when_the_full_query_is_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .and(query_param("q", "ide code spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "results": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .and(query_param("q", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(packagist_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = packagist_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].name, "laravel/framework");
+}
+
+#[tokio::test]
+async fn artifacthub_narrows_all_the_way_to_a_single_keyword() {
+    let server = MockServer::start().await;
+    for empty in [
+        "ide code spell syntax mistakes",
+        "spell syntax mistakes",
+        "syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/api/v1/packages/search"))
+            .and(query_param("ts_query_web", empty))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "packages": [] })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v1/packages/search"))
+        .and(query_param("ts_query_web", "mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(artifacthub_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = artifacthub_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].name, "prometheus");
+}
+
+#[tokio::test]
+async fn hacker_news_narrows_when_the_idea_and_full_query_are_empty() {
+    // HN searches the raw idea first -- a phrase match is the best answer when
+    // it lands -- then the keyword set, then the narrowings.
+    let server = MockServer::start().await;
+    for empty in [
+        "an ide plugin that highlights spelling mistakes in code comments",
+        "ide code spell syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/api/v1/search"))
+            .and(query_param("query", empty))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "hits": [] })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v1/search"))
+        .and(query_param("query", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(hn_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = hn_for(&server).search(&narrowing_query()).await.unwrap();
+    assert_eq!(matches.len(), 2);
+}
+
+/// Maven is the strict one: its Solr index matches artifact coordinates only,
+/// so even two terms come back empty and it has to fall all the way to one.
+#[tokio::test]
+async fn maven_narrows_all_the_way_to_a_single_keyword() {
+    let server = MockServer::start().await;
+    for empty in [
+        "ide code spell syntax mistakes",
+        "spell syntax mistakes",
+        "syntax mistakes",
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/solrsearch/select"))
+            .and(query_param("q", empty))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "response": { "docs": [] } })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/solrsearch/select"))
+        .and(query_param("q", "mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(maven_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = Maven::with_base_url(Client::new(), server.uri())
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "com.google.guava:guava");
+}
+
+/// Homebrew ANDs locally against a one-line description, so the narrowing runs
+/// over the cached catalog rather than over requests.
+#[tokio::test]
+async fn homebrew_narrows_against_the_cached_catalog() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/formula.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "name": "proselint",
+                // Carries spell/syntax/mistakes but neither "ide" nor "code",
+                // so only the narrowed keyword set can match it.
+                "desc": "Finds syntax mistakes and spell errors in prose",
+                "homepage": "https://proselint.com"
+            }
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/cask.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+
+    let matches = Homebrew::with_base_url(Client::new(), server.uri())
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "proselint");
+}

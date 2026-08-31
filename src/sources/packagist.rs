@@ -64,39 +64,48 @@ impl SourceAdapter for Packagist {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/search.json", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("q", q.as_str()), ("per_page", "15")])
-            .send()
-            .await?
-            .error_for_status()?;
+        // Packagist ANDs every term, so a realistic multi-keyword idea returns
+        // nothing even where a matching package exists -- measured live, a
+        // 7-term idea returns zero while its 2 longest terms return plenty.
+        let mut matches = Vec::new();
+        for q in super::narrowing_candidates(query, 2) {
+            let response = self
+                .client
+                .get(&url)
+                .query(&[("q", q.as_str()), ("per_page", "15")])
+                .send()
+                .await?
+                .error_for_status()?;
 
-        let body: SearchResponse = response.json().await?;
+            let body: SearchResponse = response.json().await?;
 
-        Ok(body
-            .results
-            .into_iter()
-            .map(|p| {
-                // popularity = downloads, falling back to favers; never zero.
-                let popularity = p
-                    .downloads
-                    .filter(|&d| d > 0)
-                    .or_else(|| p.favers.filter(|&f| f > 0));
-                Match {
-                    url: p
-                        .url
-                        .unwrap_or_else(|| format!("{}/packages/{}", self.base_url, p.name)),
-                    name: p.name,
-                    source: Source::Packagist,
-                    description: p.description.unwrap_or_default(),
-                    popularity,
-                    similarity: 0.0,
-                    last_updated: None,
-                }
-            })
-            .collect())
+            matches = body
+                .results
+                .into_iter()
+                .map(|p| {
+                    // popularity = downloads, falling back to favers; never zero.
+                    let popularity = p
+                        .downloads
+                        .filter(|&d| d > 0)
+                        .or_else(|| p.favers.filter(|&f| f > 0));
+                    Match {
+                        url: p
+                            .url
+                            .unwrap_or_else(|| format!("{}/packages/{}", self.base_url, p.name)),
+                        name: p.name,
+                        source: Source::Packagist,
+                        description: p.description.unwrap_or_default(),
+                        popularity,
+                        similarity: 0.0,
+                        last_updated: None,
+                    }
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }

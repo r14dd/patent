@@ -129,39 +129,50 @@ impl SourceAdapter for ArtifactHub {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/api/v1/packages/search", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let body: SearchResponse = self
-            .client
-            .get(&url)
-            .query(&[
-                ("ts_query_web", q.as_str()),
-                ("limit", "15"),
-                ("facets", "false"),
-            ])
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        // `ts_query_web` ANDs every term against a comparatively small index,
+        // so even two terms usually return nothing: measured live, a 7-term
+        // idea and "command listening" both return zero where "listening"
+        // returns charts. Narrow all the way to a single keyword; the noise
+        // that lets in is dropped by similarity ranking.
+        let mut matches = Vec::new();
+        for q in super::narrowing_candidates(query, 1) {
+            let body: SearchResponse = self
+                .client
+                .get(&url)
+                .query(&[
+                    ("ts_query_web", q.as_str()),
+                    ("limit", "15"),
+                    ("facets", "false"),
+                ])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
 
-        Ok(body
-            .packages
-            .into_iter()
-            .map(|p| {
-                let url = package_url(&self.base_url, &p.repository, &p.name);
-                Match {
-                    url,
-                    name: p.name,
-                    source: Source::ArtifactHub,
-                    description: p.description.unwrap_or_default(),
-                    // None if absent or zero — a 0-star package is not a
-                    // meaningful popularity signal.
-                    popularity: p.stars.filter(|&s| s > 0),
-                    similarity: 0.0,
-                    last_updated: p.ts.and_then(freshness::from_unix_secs),
-                }
-            })
-            .collect())
+            matches = body
+                .packages
+                .into_iter()
+                .map(|p| {
+                    let url = package_url(&self.base_url, &p.repository, &p.name);
+                    Match {
+                        url,
+                        name: p.name,
+                        source: Source::ArtifactHub,
+                        description: p.description.unwrap_or_default(),
+                        // None if absent or zero — a 0-star package is not a
+                        // meaningful popularity signal.
+                        popularity: p.stars.filter(|&s| s > 0),
+                        similarity: 0.0,
+                        last_updated: p.ts.and_then(freshness::from_unix_secs),
+                    }
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }

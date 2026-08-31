@@ -43,33 +43,42 @@ impl SourceAdapter for RubyGems {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/api/v1/search.json", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let gems: Vec<Gem> = self
-            .client
-            .get(&url)
-            .query(&[("query", q.as_str())])
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        // RubyGems ANDs every term, so a realistic multi-keyword idea returns
+        // nothing even where a matching gem exists -- measured live, a 7-term
+        // idea returns zero while its 2 longest terms return plenty.
+        let mut matches = Vec::new();
+        for q in super::narrowing_candidates(query, 2) {
+            let gems: Vec<Gem> = self
+                .client
+                .get(&url)
+                .query(&[("query", q.as_str())])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
 
-        Ok(gems
-            .into_iter()
-            .filter(|g| g.info.as_ref().is_some_and(|i| !i.is_empty()))
-            .take(20)
-            .map(|g| Match {
-                url: g
-                    .project_uri
-                    .unwrap_or_else(|| format!("https://rubygems.org/gems/{}", g.name)),
-                name: g.name,
-                source: Source::RubyGems,
-                description: g.info.unwrap_or_default(),
-                popularity: g.downloads,
-                similarity: 0.0,
-                last_updated: None,
-            })
-            .collect())
+            matches = gems
+                .into_iter()
+                .filter(|g| g.info.as_ref().is_some_and(|i| !i.is_empty()))
+                .take(20)
+                .map(|g| Match {
+                    url: g
+                        .project_uri
+                        .unwrap_or_else(|| format!("https://rubygems.org/gems/{}", g.name)),
+                    name: g.name,
+                    source: Source::RubyGems,
+                    description: g.info.unwrap_or_default(),
+                    popularity: g.downloads,
+                    similarity: 0.0,
+                    last_updated: None,
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }

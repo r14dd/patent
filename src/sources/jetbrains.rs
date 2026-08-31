@@ -54,19 +54,6 @@ fn truncate(s: &str, max: usize) -> String {
     format!("{truncated}…")
 }
 
-/// Picks the `n` longest keywords, preserving their original order (not
-/// sorted by length) — see [`SourceAdapter::search`] below for why.
-fn narrowed(keywords: &[String], n: usize) -> String {
-    let mut idx: Vec<usize> = (0..keywords.len()).collect();
-    idx.sort_by(|&a, &b| keywords[b].len().cmp(&keywords[a].len()));
-    idx.truncate(n);
-    idx.sort_unstable();
-    idx.into_iter()
-        .map(|i| keywords[i].as_str())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 #[async_trait::async_trait]
 impl SourceAdapter for JetBrains {
     fn id(&self) -> Source {
@@ -80,25 +67,8 @@ impl SourceAdapter for JetBrains {
         // realistic multi-keyword idea (5+ terms) reliably returns zero hits
         // even when a matching plugin exists — measured live: a 5-7 term idea
         // returns `total: 0`, while the 3 longest terms of the same idea
-        // routinely return results. Progressively narrow to fewer, longer
-        // (more content-bearing) keywords until something comes back, skipping
-        // any narrowing that repeats a query string already tried (e.g. with
-        // ≤3 keywords, "3 longest" is identical to the full set).
-        let mut candidates = Vec::new();
-        for q in [
-            query.keywords.join(" "),
-            narrowed(&query.keywords, 3),
-            narrowed(&query.keywords, 2),
-        ] {
-            if !q.is_empty() && !candidates.contains(&q) {
-                candidates.push(q);
-            }
-        }
-        if candidates.is_empty() {
-            // No keywords at all: fall back to the raw idea rather than
-            // sending an empty `search` param.
-            candidates.push(query.idea.clone());
-        }
+        // routinely return results.
+        let candidates = super::narrowing_candidates(query, 2);
 
         let mut plugins = Vec::new();
         for q in &candidates {
@@ -143,36 +113,5 @@ impl SourceAdapter for JetBrains {
                 }
             })
             .collect())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::narrowed;
-
-    fn kw(words: &[&str]) -> Vec<String> {
-        words.iter().map(|w| w.to_string()).collect()
-    }
-
-    #[test]
-    fn narrowed_picks_longest_but_preserves_original_order() {
-        // Lengths: ide=3, code=4, spell=5, syntax=6, mistakes=8. The 3
-        // longest are mistakes/syntax/spell, but the result must come back
-        // in their original (index) order, not length order.
-        let keywords = kw(&["ide", "code", "spell", "syntax", "mistakes"]);
-        assert_eq!(narrowed(&keywords, 3), "spell syntax mistakes");
-        assert_eq!(narrowed(&keywords, 2), "syntax mistakes");
-    }
-
-    #[test]
-    fn narrowed_is_a_no_op_when_n_covers_all_keywords() {
-        let keywords = kw(&["async", "runtime"]);
-        assert_eq!(narrowed(&keywords, 3), "async runtime");
-        assert_eq!(narrowed(&keywords, 2), "async runtime");
-    }
-
-    #[test]
-    fn narrowed_of_empty_keywords_is_empty() {
-        assert_eq!(narrowed(&[], 3), "");
     }
 }

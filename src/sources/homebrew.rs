@@ -121,35 +121,50 @@ impl SourceAdapter for Homebrew {
             .get_or_try_init(|| self.fetch_catalog())
             .await?;
 
-        let keywords_lower: Vec<String> = query.keywords.iter().map(|k| k.to_lowercase()).collect();
+        // Every keyword has to appear in the formula's name or one-line
+        // description, and those descriptions are short: a realistic 7-term
+        // idea matches nothing at all, while its 2 longest terms match real
+        // formulae. Narrow progressively until something matches. The catalog
+        // is already cached in memory, so the extra passes cost no requests.
+        let mut matches = Vec::new();
+        for candidate in super::narrowing_candidates(query, 2) {
+            let terms: Vec<String> = candidate
+                .split_whitespace()
+                .map(|k| k.to_lowercase())
+                .collect();
 
-        Ok(packages
-            .iter()
-            .filter(|pkg| {
-                let name_lower = pkg.name.to_lowercase();
-                let desc_lower = pkg.desc.as_deref().unwrap_or("").to_lowercase();
-                keywords_lower
-                    .iter()
-                    .all(|kw| name_lower.contains(kw) || desc_lower.contains(kw))
-            })
-            .take(20)
-            .map(|pkg| {
-                let url = pkg
-                    .homepage
-                    .as_ref()
-                    .filter(|h| !h.is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| format!("{}/formula/{}", self.base_url, pkg.name));
-                Match {
-                    name: pkg.name.clone(),
-                    source: Source::Homebrew,
-                    url,
-                    description: pkg.desc.clone().unwrap_or_default(),
-                    popularity: None,
-                    similarity: 0.0,
-                    last_updated: None,
-                }
-            })
-            .collect())
+            matches = packages
+                .iter()
+                .filter(|pkg| {
+                    let name_lower = pkg.name.to_lowercase();
+                    let desc_lower = pkg.desc.as_deref().unwrap_or("").to_lowercase();
+                    terms
+                        .iter()
+                        .all(|kw| name_lower.contains(kw) || desc_lower.contains(kw))
+                })
+                .take(20)
+                .map(|pkg| {
+                    let url = pkg
+                        .homepage
+                        .as_ref()
+                        .filter(|h| !h.is_empty())
+                        .cloned()
+                        .unwrap_or_else(|| format!("{}/formula/{}", self.base_url, pkg.name));
+                    Match {
+                        name: pkg.name.clone(),
+                        source: Source::Homebrew,
+                        url,
+                        description: pkg.desc.clone().unwrap_or_default(),
+                        popularity: None,
+                        similarity: 0.0,
+                        last_updated: None,
+                    }
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }

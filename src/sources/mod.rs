@@ -80,6 +80,48 @@ pub trait SourceAdapter: Send + Sync {
     async fn search(&self, query: &Query) -> Result<Vec<Match>>;
 }
 
+/// Picks the `n` longest keywords, preserving their original order (not sorted
+/// by length): the longest terms carry the most meaning, but reordering them
+/// changes what a relevance-ranked registry returns.
+fn narrowed(keywords: &[String], n: usize) -> String {
+    let mut idx: Vec<usize> = (0..keywords.len()).collect();
+    idx.sort_by(|&a, &b| keywords[b].len().cmp(&keywords[a].len()));
+    idx.truncate(n);
+    idx.sort_unstable();
+    idx.into_iter()
+        .map(|i| keywords[i].as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Query strings to try, in order, against a source that ANDs its search terms.
+///
+/// Such a source returns nothing for a realistic multi-keyword idea even where
+/// matching packages exist — measured live, a 7-term idea returns zero from
+/// half the registries while 2-3 of its longest terms return hundreds. Callers
+/// try each candidate until one comes back non-empty.
+///
+/// The list runs from the full keyword set down to `min_terms` of the longest
+/// keywords; duplicates (a narrowing that repeats a string already tried) are
+/// dropped, and a query with no keywords at all falls back to the raw idea
+/// rather than sending an empty search param. `min_terms` is per-source and
+/// measured, not guessed: most sources recover at 2, while Maven, NuGet and
+/// Artifact Hub index strictly enough to need a single keyword.
+pub(crate) fn narrowing_candidates(query: &Query, min_terms: usize) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let steps = std::iter::once(query.keywords.len()).chain((min_terms..=3).rev());
+    for n in steps {
+        let q = narrowed(&query.keywords, n);
+        if !q.is_empty() && !candidates.contains(&q) {
+            candidates.push(q);
+        }
+    }
+    if candidates.is_empty() {
+        candidates.push(query.idea.clone());
+    }
+    candidates
+}
+
 use crate::model::Source as S;
 
 fn http_client() -> Result<reqwest::Client> {
@@ -531,6 +573,75 @@ fn enrich(kept: &mut Match, dup: Match) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn kw(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| w.to_string()).collect()
+    }
+
+    fn q(idea: &str, words: &[&str]) -> Query {
+        Query {
+            idea: idea.to_string(),
+            keywords: kw(words),
+        }
+    }
+
+    #[test]
+    fn narrowed_picks_longest_but_preserves_original_order() {
+        // Lengths: ide=3, code=4, spell=5, syntax=6, mistakes=8. The 3
+        // longest are mistakes/syntax/spell, but the result must come back
+        // in their original (index) order, not length order.
+        let keywords = kw(&["ide", "code", "spell", "syntax", "mistakes"]);
+        assert_eq!(narrowed(&keywords, 3), "spell syntax mistakes");
+        assert_eq!(narrowed(&keywords, 2), "syntax mistakes");
+    }
+
+    #[test]
+    fn narrowed_is_a_no_op_when_n_covers_all_keywords() {
+        let keywords = kw(&["async", "runtime"]);
+        assert_eq!(narrowed(&keywords, 3), "async runtime");
+        assert_eq!(narrowed(&keywords, 2), "async runtime");
+    }
+
+    #[test]
+    fn narrowed_of_empty_keywords_is_empty() {
+        assert_eq!(narrowed(&[], 3), "");
+    }
+
+    #[test]
+    fn candidates_go_from_the_full_set_down_to_min_terms() {
+        let query = q("x", &["ide", "code", "spell", "syntax", "mistakes"]);
+        assert_eq!(
+            narrowing_candidates(&query, 2),
+            vec![
+                "ide code spell syntax mistakes",
+                "spell syntax mistakes",
+                "syntax mistakes",
+            ]
+        );
+        // Maven only recovers at a single term, so it asks for one more step.
+        assert_eq!(
+            narrowing_candidates(&query, 1).last().unwrap(),
+            "mistakes",
+            "min_terms = 1 must end on the single longest keyword"
+        );
+    }
+
+    #[test]
+    fn candidates_drop_narrowings_that_repeat_an_earlier_query() {
+        // With <= 3 keywords the "3 longest" step is the full set again.
+        let query = q("x", &["async", "runtime"]);
+        assert_eq!(narrowing_candidates(&query, 2), vec!["async runtime"]);
+    }
+
+    #[test]
+    fn candidates_fall_back_to_the_idea_when_there_are_no_keywords() {
+        let query = q("kill the process on a port", &[]);
+        assert_eq!(
+            narrowing_candidates(&query, 2),
+            vec!["kill the process on a port"],
+            "an empty search param would be sent otherwise"
+        );
+    }
 
     #[test]
     fn idea_contains_respects_word_boundaries() {

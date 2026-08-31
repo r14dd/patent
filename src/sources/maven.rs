@@ -64,35 +64,47 @@ impl SourceAdapter for Maven {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/solrsearch/select", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let body: SolrResponse = self
-            .client
-            .get(&url)
-            .query(&[("q", q.as_str()), ("rows", "20"), ("wt", "json")])
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        // Central's Solr index ANDs every term against artifact coordinates
+        // only, which is far stricter than the other registries: measured live,
+        // "kill process port" returns zero and even 2 terms return zero, while
+        // "process" alone returns 845. Maven is the one source that has to
+        // narrow all the way down to a single keyword to come back with
+        // anything; the noise that lets in is dropped by similarity ranking.
+        let mut matches = Vec::new();
+        for q in super::narrowing_candidates(query, 1) {
+            let body: SolrResponse = self
+                .client
+                .get(&url)
+                .query(&[("q", q.as_str()), ("rows", "20"), ("wt", "json")])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
 
-        Ok(body
-            .response
-            .docs
-            .into_iter()
-            .map(|d| {
-                let name = format!("{}:{}", d.g, d.a);
-                let url = format!("https://central.sonatype.com/artifact/{}/{}", d.g, d.a);
-                Match {
-                    description: d.a.clone(),
-                    name,
-                    source: Source::Maven,
-                    url,
-                    popularity: None,
-                    similarity: 0.0,
-                    last_updated: d.timestamp.and_then(freshness::from_unix_millis),
-                }
-            })
-            .collect())
+            matches = body
+                .response
+                .docs
+                .into_iter()
+                .map(|d| {
+                    let name = format!("{}:{}", d.g, d.a);
+                    let url = format!("https://central.sonatype.com/artifact/{}/{}", d.g, d.a);
+                    Match {
+                        description: d.a.clone(),
+                        name,
+                        source: Source::Maven,
+                        url,
+                        popularity: None,
+                        similarity: 0.0,
+                        last_updated: d.timestamp.and_then(freshness::from_unix_millis),
+                    }
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }

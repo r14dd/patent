@@ -127,45 +127,62 @@ impl SourceAdapter for HackerNews {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/api/v1/search", self.base_url);
-        let q = query.idea.clone();
 
-        let body: SearchResponse = self
-            .client
-            .get(&url)
-            .query(&[
-                ("query", q.as_str()),
-                ("hitsPerPage", "20"),
-                ("tags", "story"),
-            ])
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        // Algolia ANDs every word, so a whole idea sentence reliably matches no
+        // story even when one exists -- measured live, the full idea returns
+        // zero while its 2 longest keywords return plenty. Try the idea first
+        // (a phrase match is the best result when it lands), then narrow.
+        let mut candidates = vec![query.idea.clone()];
+        for c in super::narrowing_candidates(query, 2) {
+            if !candidates.contains(&c) {
+                candidates.push(c);
+            }
+        }
 
-        Ok(body
-            .hits
-            .into_iter()
-            .filter(|h| h.title.as_ref().is_some_and(|t| !t.is_empty()))
-            .map(|h| {
-                let title = h.title.unwrap_or_default();
-                let desc = h
-                    .story_text
-                    .as_deref()
-                    .map(strip_html_tags)
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| title.clone());
-                let desc = truncate(&desc, MAX_DESC_LEN);
-                Match {
-                    name: title,
-                    source: Source::HackerNews,
-                    url: format!("https://news.ycombinator.com/item?id={}", h.object_id),
-                    description: desc,
-                    popularity: h.points,
-                    similarity: 0.0,
-                    last_updated: None,
-                }
-            })
-            .collect())
+        let mut matches = Vec::new();
+        for q in candidates {
+            let body: SearchResponse = self
+                .client
+                .get(&url)
+                .query(&[
+                    ("query", q.as_str()),
+                    ("hitsPerPage", "20"),
+                    ("tags", "story"),
+                ])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+
+            matches = body
+                .hits
+                .into_iter()
+                .filter(|h| h.title.as_ref().is_some_and(|t| !t.is_empty()))
+                .map(|h| {
+                    let title = h.title.unwrap_or_default();
+                    let desc = h
+                        .story_text
+                        .as_deref()
+                        .map(strip_html_tags)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| title.clone());
+                    let desc = truncate(&desc, MAX_DESC_LEN);
+                    Match {
+                        name: title,
+                        source: Source::HackerNews,
+                        url: format!("https://news.ycombinator.com/item?id={}", h.object_id),
+                        description: desc,
+                        popularity: h.points,
+                        similarity: 0.0,
+                        last_updated: None,
+                    }
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }
