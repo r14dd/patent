@@ -31,7 +31,7 @@ async fn generate_sends_model_and_user_message() {
                 "model": "gpt-4o-mini",
                 "messages": [{ "role": "user", "content": "say hi" }],
                 "temperature": 0.0,
-                "max_tokens": 512
+                "max_tokens": 2048
             })
             .to_string(),
         ))
@@ -141,4 +141,129 @@ async fn generate_maps_non_json_success_body_to_llm_rejected() {
         matches!(err, patent::Error::LlmRejected(_)),
         "expected LlmRejected, got: {err:?}"
     );
+}
+
+#[tokio::test]
+async fn generate_retries_reasoning_models_with_max_completion_tokens() {
+    // OpenAI's o-series and GPT-5 reject `max_tokens` and a non-default
+    // `temperature`. The retry must drop both and use the newer spelling.
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(body_json_string(
+            json!({
+                "model": "o3",
+                "messages": [{ "role": "user", "content": "say hi" }],
+                "temperature": 0.0,
+                "max_tokens": 2048
+            })
+            .to_string(),
+        ))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": {
+                "message": "Unsupported parameter: 'max_tokens' is not supported with \
+                            this model. Use 'max_completion_tokens' instead."
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(body_json_string(
+            json!({
+                "model": "o3",
+                "messages": [{ "role": "user", "content": "say hi" }],
+                "max_completion_tokens": 2048
+            })
+            .to_string(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(chat_response("reasoned")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = OpenAi::new(server.uri(), "o3", None)
+        .unwrap()
+        .generate("say hi")
+        .await
+        .unwrap();
+    assert_eq!(out, "reasoned");
+}
+
+#[tokio::test]
+async fn generate_retries_when_the_server_rejects_only_temperature() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(body_json_string(
+            json!({
+                "model": "o3",
+                "messages": [{ "role": "user", "content": "say hi" }],
+                "temperature": 0.0,
+                "max_tokens": 2048
+            })
+            .to_string(),
+        ))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": {
+                "message": "Unsupported value: 'temperature' does not support 0.0 with \
+                            this model. Only the default (1) value is supported."
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(body_json_string(
+            json!({
+                "model": "o3",
+                "messages": [{ "role": "user", "content": "say hi" }],
+                "max_completion_tokens": 2048
+            })
+            .to_string(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(chat_response("reasoned")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = OpenAi::new(server.uri(), "o3", None)
+        .unwrap()
+        .generate("say hi")
+        .await
+        .unwrap();
+    assert_eq!(out, "reasoned");
+}
+
+#[tokio::test]
+async fn generate_does_not_retry_an_unrelated_bad_request() {
+    // An ordinary 400 (bad model name, malformed request) must degrade on the
+    // first response -- the retry is for one documented incompatibility only.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(400).set_body_json(
+                json!({ "error": { "message": "The model `nope` does not exist" } }),
+            ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let err = OpenAi::new(server.uri(), "nope", None)
+        .unwrap()
+        .generate("hi")
+        .await
+        .unwrap_err();
+    let patent::Error::LlmRejected(msg) = err else {
+        panic!("expected LlmRejected, got: {err:?}");
+    };
+    assert!(msg.contains("does not exist"), "got: {msg}");
 }

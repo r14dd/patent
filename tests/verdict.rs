@@ -343,6 +343,58 @@ async fn assess_handles_json_wrapped_in_markdown_fence() {
 }
 
 #[tokio::test]
+async fn assess_skips_a_reasoning_trace_that_drafts_its_own_json() {
+    // A DeepSeek-R1-style inline trace that talks itself through a draft
+    // verdict before answering. The draft says Saturated and the answer says
+    // Open, so reading the trace instead of the answer is visible in the
+    // result rather than merely a parse error.
+    let traced = "<think>Let me draft: ```json\n\
+        {\"level\":\"Saturated\",\"headline\":\"Draft from the trace.\",\"gaps\":[]}\n\
+        ```\nNo, the search found nothing. Answer Open.</think>\n\
+        {\"level\":\"Open\",\"headline\":\"Nothing found in the sources checked.\",\"gaps\":[]}";
+    let server = mock_ollama(json!({"response": traced, "done": true})).await;
+
+    let ollama = Ollama::new(server.uri(), "deepseek-r1").unwrap();
+    let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
+        .await
+        .unwrap();
+    assert_eq!(v.level, Saturation::Open);
+    assert!(v.headline.contains("sources checked"), "{}", v.headline);
+}
+
+#[tokio::test]
+async fn assess_accepts_a_closing_think_tag_with_no_opener() {
+    // Some chat templates open the thinking block for the model, so the
+    // response carries only the closing tag.
+    let traced = "Searching my memory of the ecosystem.</think>\n\
+        {\"level\":\"Open\",\"headline\":\"Nothing found in the sources checked.\",\"gaps\":[]}";
+    let server = mock_ollama(json!({"response": traced, "done": true})).await;
+
+    let ollama = Ollama::new(server.uri(), "deepseek-r1").unwrap();
+    let v = verdict::assess(&ollama, &query(), &[], vec![Source::GitHub], vec![])
+        .await
+        .unwrap();
+    assert_eq!(v.level, Saturation::Open);
+}
+
+#[tokio::test]
+async fn assess_rejects_an_unterminated_reasoning_trace() {
+    // Trace with no closing tag and no answer: nothing parseable was returned,
+    // and inventing a verdict out of the trace body would be worse than
+    // falling back.
+    let server = mock_ollama(
+        json!({"response": "<think>Let me consider the crates.io results", "done": true}),
+    )
+    .await;
+
+    let ollama = Ollama::new(server.uri(), "deepseek-r1").unwrap();
+    let err = verdict::assess(&ollama, &query(), &[], vec![], vec![])
+        .await
+        .unwrap_err();
+    assert!(matches!(err, patent::Error::Parse(_)));
+}
+
+#[tokio::test]
 async fn assess_rejects_garbage_response() {
     let server = mock_ollama(json!({"response": "I don't know what JSON is", "done": true})).await;
 

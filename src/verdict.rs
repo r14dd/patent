@@ -343,7 +343,18 @@ fn is_whole_word(text: &str, word: &str) -> bool {
 
 /// Extract JSON from a model response that may be wrapped in markdown fences.
 fn extract_json(raw: &str) -> &str {
-    let trimmed = raw.trim();
+    let mut trimmed = raw.trim();
+    // Reasoning models in the DeepSeek-R1 family emit their trace inline as a
+    // `<think>...</think>` preamble instead of in a separate field. The trace
+    // often drafts a fenced JSON block of its own, so it has to be dropped
+    // before the fence scan below -- otherwise we parse the draft rather than
+    // the answer. Slice past the last closing tag rather than matching a pair:
+    // some chat templates open the block for the model, so the response can
+    // carry `</think>` with no opener. An unterminated trace is left alone and
+    // fails to parse, which is the honest outcome.
+    if let Some(end) = trimmed.rfind("</think>") {
+        trimmed = trimmed[end + "</think>".len()..].trim();
+    }
     if let Some(start) = trimmed.find("```") {
         let after_fence = &trimmed[start + 3..];
         let content = after_fence
