@@ -209,6 +209,12 @@ mod tests {
             from_go_date("Feb 28, 2026").as_deref(), // pkg.go.dev
             Some("2026-02-28T00:00:00Z")
         );
+        // The VS Code Marketplace is the only source seen writing a
+        // single-digit fraction and a `+00:00` offset instead of `Z`.
+        assert_eq!(
+            from_rfc3339("2026-08-27T09:58:55.6+00:00").as_deref(),
+            Some("2026-08-27T09:58:55Z")
+        );
     }
 
     #[test]

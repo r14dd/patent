@@ -1747,7 +1747,8 @@ fn vscode_body() -> serde_json::Value {
                 "extensionName": "rust-analyzer",
                 "displayName": "rust-analyzer",
                 "shortDescription": "Rust language support",
-                "statistics": [{ "statisticName": "install", "value": 12345.0 }]
+                "statistics": [{ "statisticName": "install", "value": 12345.0 }],
+                "lastUpdated": "2026-08-27T09:58:55.6+00:00"
             }]
         }]
     })
@@ -3352,6 +3353,57 @@ async fn a_malformed_date_never_fails_its_source() {
             matches.iter().all(|m| m.last_updated.is_none()),
             "{route}: a broken date must degrade to None, not a fabricated value"
         );
+    }
+}
+
+#[tokio::test]
+async fn vscode_normalises_a_single_digit_fraction_and_explicit_offset() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/_apis/public/gallery/extensionquery"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(vscode_body()))
+        .mount(&server)
+        .await;
+    let m = VsCodeMarketplace::with_base_url(reqwest::Client::new(), server.uri())
+        .search(&query())
+        .await
+        .unwrap();
+    // `2026-08-27T09:58:55.6+00:00` — the only source seen writing a one-digit
+    // fraction and a numeric zero offset rather than `Z`.
+    assert_eq!(m[0].last_updated.as_deref(), Some("2026-08-27T09:58:55Z"));
+}
+
+/// The gallery only returns `lastUpdated` under `flags: 914`; a narrower flag
+/// set drops the field entirely, which must read as "no date", not fail.
+#[tokio::test]
+async fn vscode_survives_a_missing_or_broken_date() {
+    for body in [
+        {
+            let mut b = vscode_body();
+            b["results"][0]["extensions"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("lastUpdated");
+            b
+        },
+        {
+            let mut b = vscode_body();
+            b["results"][0]["extensions"][0]["lastUpdated"] = json!(1_756_288_735_i64);
+            b
+        },
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/_apis/public/gallery/extensionquery"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let m = VsCodeMarketplace::with_base_url(reqwest::Client::new(), server.uri())
+            .search(&query())
+            .await
+            .expect("a missing or broken date must not fail the source");
+        assert_eq!(m.len(), 1, "the match itself must still come through");
+        assert_eq!(m[0].last_updated, None);
     }
 }
 

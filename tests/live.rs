@@ -242,7 +242,8 @@ live!(
     VsCodeMarketplace::new(client()),
     SourceId::VsCodeMarketplace,
     "python language support",
-    &["python"]
+    &["python"],
+    dated: true
 );
 
 live!(

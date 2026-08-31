@@ -45,6 +45,9 @@ struct Extension {
     short_description: Option<String>,
     #[serde(default)]
     statistics: Vec<Statistic>,
+    /// Requires `flags: 914` on the query below; a smaller flag set omits it.
+    #[serde(default, deserialize_with = "crate::freshness::lenient")]
+    last_updated: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,7 +122,10 @@ impl SourceAdapter for VsCodeMarketplace {
                     description: e.short_description.unwrap_or_default(),
                     popularity: installs,
                     similarity: 0.0,
-                    last_updated: None,
+                    last_updated: e
+                        .last_updated
+                        .as_deref()
+                        .and_then(crate::freshness::from_rfc3339),
                 }
             })
             .collect())

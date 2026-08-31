@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **VS Code Marketplace matches now carry a last-updated date.** The search
+  response already held `lastUpdated` (the `flags: 914` request the adapter
+  already sends is what returns it); it was simply not being read, so every
+  extension rendered undated. Live, 20 of 20 results now come back dated.
+
+  A re-probe of the nine remaining undated sources found only one other date
+  in an existing search response, and it was rejected: Hackage's
+  `last-modified` header is the `.cabal` file's mtime, which trustee
+  bound-fixes bump without a release — as is Hacker News' `created_at`, which
+  dates a discussion thread rather than the thing discussed. Both would render
+  as staleness about something never being maintained. For RubyGems, Docker
+  Hub, NuGet, Packagist, Homebrew and Nixpkgs the date exists only behind one
+  extra request per result, which the source timeout does not buy. The split
+  and its reasons are now documented in `sources/mod.rs`.
+
 ### Fixed
 
 - **Reasoning models no longer silently degrade the verdict on `--api-base`.**

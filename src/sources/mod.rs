@@ -24,14 +24,23 @@
 //! | Artifact Hub | `ts` (epoch secs) |
 //! | Go | scraped from the rendered "published on" date |
 //! | JetBrains Marketplace | `cdate` (epoch millis, last-updated not creation) |
+//! | VS Code Marketplace | `lastUpdated` (needs `flags: 914`; a narrower flag set silently drops it) |
 //!
-//! Always `None`: **RubyGems**, **Docker Hub**, **NuGet**, **Packagist**,
-//! **Homebrew**, **Hackage**, **Nixpkgs** and **VS Code Marketplace** return
-//! no date in their search responses at all; **PyPI** is bot-walled and
-//! returns nothing to parse.
-//! **Hacker News** does expose `created_at`, but that is when a thread was
-//! posted — it says nothing about whether the thing discussed is maintained,
-//! and rendering a 2012 discussion as "stale" would be actively misleading.
+//! Always `None` because the date exists only behind a per-package request,
+//! which `SOURCE_TIMEOUT` does not buy: **RubyGems**, **Docker Hub**,
+//! **NuGet**, **Packagist**, **Homebrew** and **Nixpkgs**. **PyPI** is
+//! bot-walled and returns nothing to parse.
+//!
+//! Two more sources publish a date that is not a *last-updated* date, and stay
+//! `None` on purpose. The field means "when the artifact itself last changed":
+//! **Hacker News** `created_at` is when a thread was posted, and **Hackage**
+//! sends a `last-modified` header for the `.cabal` file, which trustee
+//! bound-fixes bump without a release. Either one would render staleness about
+//! something that was never being maintained in the first place.
+//!
+//! One path deliberately not taken: Docker Hub's v3 catalog endpoint
+//! (`/api/search/v3/catalog/search`) does carry `updated_at`, but reaching it
+//! means swapping search endpoints, not reading another field.
 //!
 //! The table describes what each source *publishes*, not what every rendered
 //! row ends up carrying. A match attributed to an undated source can still show
