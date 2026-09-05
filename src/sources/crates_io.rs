@@ -57,30 +57,39 @@ impl SourceAdapter for CratesIo {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/api/v1/crates", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("q", q.as_str()), ("per_page", "20")])
-            .send()
-            .await?
-            .error_for_status()?;
+        // crates.io ANDs every term across name and description -- measured
+        // live, a 7-term idea returns 3 unrelated crates and a 5-term one 121,
+        // while 2 of its longest terms return tens of thousands.
+        let mut matches = Vec::new();
+        for q in super::narrowing_candidates(query, 2) {
+            let response = self
+                .client
+                .get(&url)
+                .query(&[("q", q.as_str()), ("per_page", "20")])
+                .send()
+                .await?
+                .error_for_status()?;
 
-        let body: SearchResponse = response.json().await?;
+            let body: SearchResponse = response.json().await?;
 
-        Ok(body
-            .crates
-            .into_iter()
-            .map(|c| Match {
-                url: format!("{}/crates/{}", self.base_url, c.name),
-                name: c.name,
-                source: Source::CratesIo,
-                description: c.description.unwrap_or_default(),
-                popularity: c.downloads,
-                similarity: 0.0,
-                last_updated: c.updated_at.as_deref().and_then(freshness::from_rfc3339),
-            })
-            .collect())
+            matches = body
+                .crates
+                .into_iter()
+                .map(|c| Match {
+                    url: format!("{}/crates/{}", self.base_url, c.name),
+                    name: c.name,
+                    source: Source::CratesIo,
+                    description: c.description.unwrap_or_default(),
+                    popularity: c.downloads,
+                    similarity: 0.0,
+                    last_updated: c.updated_at.as_deref().and_then(freshness::from_rfc3339),
+                })
+                .collect();
+            if !matches.is_empty() {
+                break;
+            }
+        }
+        Ok(matches)
     }
 }

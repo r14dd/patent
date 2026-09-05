@@ -15,6 +15,9 @@ use crate::Result;
 /// Default Hex host. Overridable in tests via [`Hex::with_base_url`].
 const DEFAULT_BASE_URL: &str = "https://hex.pm";
 
+/// How many of the longest keywords get their own single-term search.
+const TERMS: usize = 3;
+
 /// Searches the Hex registry (Erlang/Elixir).
 #[derive(Debug, Clone)]
 pub struct Hex {
@@ -73,38 +76,53 @@ impl SourceAdapter for Hex {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/api/packages", self.base_url);
-        let q = query.keywords.join(" ");
 
-        let body: Vec<Package> = self
-            .client
-            .get(&url)
-            .query(&[("search", q.as_str()), ("page", "1")])
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        // Hex's search grammar only honours a single bare term. Measured live:
+        // a space-joined multi-word query returns the unfiltered catalogue
+        // (100 packages, alphabetical, identical for every idea), and with
+        // `description:` prefixes only the last term filters. Narrowing cannot
+        // detect that -- the flood is never empty -- so each of the longest
+        // keywords is searched on its own and the results are merged.
+        let mut terms: Vec<&str> = query.keywords.iter().map(String::as_str).collect();
+        terms.sort_by_key(|t| std::cmp::Reverse(t.len()));
+        terms.truncate(TERMS);
+        if terms.is_empty() {
+            terms.push(query.idea.as_str());
+        }
 
-        Ok(body
-            .into_iter()
-            .map(|p| {
+        let mut matches: Vec<Match> = Vec::new();
+        for term in terms {
+            let body: Vec<Package> = self
+                .client
+                .get(&url)
+                .query(&[("search", term), ("page", "1")])
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+
+            for p in body {
+                if matches.iter().any(|m| m.name == p.name) {
+                    continue;
+                }
                 // Prefer the registry-provided web link; fall back to the
                 // canonical package URL (honoring base_url so tests stay local).
                 let url = p
                     .html_url
                     .filter(|u| !u.trim().is_empty())
                     .unwrap_or_else(|| format!("{}/packages/{}", self.base_url, p.name));
-                Match {
+                matches.push(Match {
+                    url,
                     name: p.name,
                     source: Source::Hex,
-                    url,
                     description: p.meta.description.unwrap_or_default(),
-                    // Treat a zero/absent lifetime download count as no signal.
-                    popularity: p.downloads.all.filter(|&d| d > 0),
+                    popularity: p.downloads.all.filter(|&n| n > 0),
                     similarity: 0.0,
                     last_updated: p.updated_at.as_deref().and_then(freshness::from_rfc3339),
-                }
-            })
-            .collect())
+                });
+            }
+        }
+        Ok(matches)
     }
 }

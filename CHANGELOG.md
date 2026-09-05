@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Hex was returning the same hundred packages for every idea.** Its search
+  grammar honours a single bare term only: a space-joined multi-word query
+  returns the unfiltered catalogue (100 packages, alphabetical, identical
+  whatever the idea), and with `description:` prefixes only the last term
+  filters. Progressive narrowing cannot see that, because the flood is never
+  empty, so the adapter now searches each of the three longest keywords on its
+  own and merges the results. Live, "file watcher" now returns `file_watch`,
+  `ex_watcher` and `fsnotify` where it returned `aba_validator` and
+  `absinthe_gen` before. This was the worst shape of thin evidence: not an
+  empty source but a populated, irrelevant one
+- **crates.io ANDs every term** — measured live, a seven-keyword idea returns
+  three unrelated crates and a five-keyword one 121, while two of its longest
+  keywords return tens of thousands. It now narrows progressively like the
+  other ANDing registries. The multi-term audit (#95) is complete: Docker Hub,
+  GitHub, Hackage, Nixpkgs, npm and the VS Code Marketplace were probed with
+  the same seven-keyword idea and OR their terms, so they are unchanged; PyPI
+  stays blocked by #94
+
 ## [0.13.0]
 
 ### Added

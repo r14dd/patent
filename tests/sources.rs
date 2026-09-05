@@ -2137,17 +2137,58 @@ async fn hex_maps_packages_into_matches() {
 }
 
 #[tokio::test]
-async fn hex_sends_joined_keywords_as_search_param() {
+async fn hex_searches_each_keyword_on_its_own_and_dedupes_across_terms() {
+    // Hex's grammar only honours a single bare term: a joined multi-word query
+    // returns the unfiltered catalogue. Each keyword must go out alone, and a
+    // package hit by two terms must appear once.
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/api/packages"))
-        .and(query_param("search", "async runtime"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(hex_body()))
-        .expect(1)
-        .mount(&server)
-        .await;
+    for term in ["async", "runtime"] {
+        Mock::given(method("GET"))
+            .and(path("/api/packages"))
+            .and(query_param("search", term))
+            .respond_with(ResponseTemplate::new(200).set_body_json(hex_body()))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
 
-    assert_eq!(hex_for(&server).search(&query()).await.unwrap().len(), 2);
+    let matches = hex_for(&server).search(&query()).await.unwrap();
+    assert_eq!(
+        matches.len(),
+        2,
+        "the same two packages from both terms, deduped"
+    );
+}
+
+#[tokio::test]
+async fn hex_searches_only_the_three_longest_keywords() {
+    let server = MockServer::start().await;
+    // Lengths: ide=3, code=4, spell=5, syntax=6, mistakes=8 -> the three
+    // longest are mistakes, syntax, spell; ide and code must never be sent.
+    for term in ["mistakes", "syntax", "spell"] {
+        Mock::given(method("GET"))
+            .and(path("/api/packages"))
+            .and(query_param("search", term))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    for term in ["ide", "code", "ide code spell syntax mistakes"] {
+        Mock::given(method("GET"))
+            .and(path("/api/packages"))
+            .and(query_param("search", term))
+            .respond_with(ResponseTemplate::new(200).set_body_json(hex_body()))
+            .expect(0)
+            .mount(&server)
+            .await;
+    }
+
+    assert!(hex_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -3469,6 +3510,32 @@ async fn nuget_narrows_all_the_way_to_a_single_keyword() {
         .unwrap();
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].name, "Newtonsoft.Json");
+}
+
+#[tokio::test]
+async fn crates_io_narrows_when_the_full_query_is_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/crates"))
+        .and(query_param("q", "ide code spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "crates": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/crates"))
+        .and(query_param("q", "spell syntax mistakes"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(two_crate_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let matches = source_for(&server)
+        .search(&narrowing_query())
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].name, "tokio");
 }
 
 #[tokio::test]
