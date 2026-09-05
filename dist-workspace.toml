@@ -15,10 +15,14 @@ installers = ["shell", "homebrew"]
 tap = "r14dd/homebrew-patent"
 publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax).
-# Intel macOS and Windows are omitted: ort-sys static linking has unresolved
-# MSVC externals and no Intel-macOS prebuilt. Those platforms install via
-# `cargo install patent` with a local onnxruntime.
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+# Intel macOS is omitted: ort-sys ships no Intel-macOS prebuilt. It installs
+# via `cargo install patent` with a local onnxruntime.
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# The onnxruntime prebuilt is built against the dynamic CRT (/MD); dist's
+# default +crt-static links libucrt and leaves its __imp_* CRT imports
+# unresolved (LNK2019). Users need the VC++ Redistributable, which every
+# maintained Windows install already has.
+msvc-crt-static = false
 
 # Build the Linux targets on a newer image: the onnxruntime prebuilt needs
 # glibc >= 2.38, which the default image is too old for.
