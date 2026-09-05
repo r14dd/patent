@@ -1,6 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [0.13.1]
+
+### Added
+
+- **Homebrew tap.** `brew install r14dd/patent/patent` installs the prebuilt
+  binary from the `r14dd/homebrew-patent` tap, which the release workflow now
+  publishes to (#35). Covers Apple Silicon macOS and x86_64/aarch64 Linux;
+  Intel macOS is not built
 
 ### Fixed
 

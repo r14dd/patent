@@ -13,7 +13,7 @@ changelog = "CHANGELOG.md"
 installers = ["shell", "homebrew"]
 # GitHub repo that hosts the Homebrew tap (create with `gh repo create homebrew-patent`)
 tap = "r14dd/homebrew-patent"
-# publish-jobs = ["homebrew"]  # enable after creating r14dd/homebrew-patent + HOMEBREW_TAP_TOKEN secret
+publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax).
 # Intel macOS and Windows are omitted: ort-sys static linking has unresolved
 # MSVC externals and no Intel-macOS prebuilt. Those platforms install via
