@@ -18,9 +18,6 @@ publish-jobs = ["homebrew"]
 # Intel macOS is omitted: ort-sys ships no Intel-macOS prebuilt. It installs
 # via `cargo install patent` with a local onnxruntime.
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
-# Temporary: build every target on PRs so the Windows build is verified
-# before it is tagged. Flip back to "plan" once it has passed.
-pr-run-mode = "upload"
 # The onnxruntime prebuilt is built against the dynamic CRT (/MD); dist's
 # default +crt-static links libucrt and leaves its __imp_* CRT imports
 # unresolved (LNK2019). Users need the VC++ Redistributable, which every
