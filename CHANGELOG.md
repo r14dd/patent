@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Windows x86_64 prebuilt.** The release workflow now builds
+  `patent-x86_64-pc-windows-msvc.zip` (#36). The binary links the dynamic CRT,
+  so it needs the Visual C++ Redistributable, which current Windows installs
+  already have. The Homebrew formula and shell installer are unchanged
+
 ## [0.13.1]
 
 ### Added
