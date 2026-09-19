@@ -62,6 +62,23 @@ struct Package {
     date: Option<String>,
 }
 
+/// npm rejects a `text` outside 2-64 characters with `400 ERR_TEXT_LENGTH`.
+const MAX_TEXT_CHARS: usize = 64;
+
+/// The idea verbatim when it fits npm's limit; otherwise as many of its longest
+/// keywords as fit, and as a last resort the idea cut to the limit.
+fn search_text(query: &Query) -> String {
+    let fits = |s: &str| s.chars().count() <= MAX_TEXT_CHARS;
+    if fits(&query.idea) {
+        return query.idea.clone();
+    }
+    (1..=query.keywords.len())
+        .rev()
+        .map(|n| super::narrowed(&query.keywords, n))
+        .find(|q| !q.is_empty() && fits(q))
+        .unwrap_or_else(|| query.idea.chars().take(MAX_TEXT_CHARS).collect())
+}
+
 #[async_trait::async_trait]
 impl SourceAdapter for Npm {
     fn id(&self) -> Source {
@@ -70,7 +87,7 @@ impl SourceAdapter for Npm {
 
     async fn search(&self, query: &Query) -> Result<Vec<Match>> {
         let url = format!("{}/-/v1/search", self.base_url);
-        let text = query.idea.clone();
+        let text = search_text(query);
 
         let body: SearchResponse = self
             .client

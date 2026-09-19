@@ -486,6 +486,35 @@ async fn npm_id_is_npm() {
     assert_eq!(src.id(), SourceId::Npm);
 }
 
+/// npm answers `400 ERR_TEXT_LENGTH` to a `text` over 64 characters, which took
+/// the whole source out for any idea written as a full sentence.
+#[tokio::test]
+async fn npm_keeps_a_long_idea_within_the_text_limit() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/-/v1/search"))
+        .and(|req: &wiremock::Request| {
+            req.url
+                .query_pairs()
+                .any(|(k, v)| k == "text" && (2..=64).contains(&v.chars().count()))
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(npm_body()))
+        .mount(&server)
+        .await;
+
+    let idea = "fake OpenAI compatible API server returning deterministic responses \
+                for testing LLM applications in CI";
+    let long = Query {
+        idea: idea.to_string(),
+        keywords: idea
+            .split_whitespace()
+            .filter(|w| w.len() > 2)
+            .map(str::to_lowercase)
+            .collect(),
+    };
+    assert_eq!(npm_for(&server).search(&long).await.unwrap().len(), 2);
+}
+
 #[tokio::test]
 async fn npm_maps_packages_into_matches() {
     let server = MockServer::start().await;

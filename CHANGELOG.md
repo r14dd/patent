@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **npm was skipped for any idea longer than 64 characters.** The registry
+  rejects a longer `text` with `400 ERR_TEXT_LENGTH`, so a sentence-length idea
+  reported npm as "not reached". The adapter now sends the idea verbatim when
+  it fits and otherwise the longest keywords that do
+
 ## [0.14.0]
 
 ### Added
