@@ -505,10 +505,8 @@ pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -
                 reached.push(id);
                 all.extend(matches);
             }
-            Err(e) => {
-                eprintln!("⚠  {id} not reached: {e}");
-                failed.push(id);
-            }
+            // Reported through `failed`; printing here would draw over the TUI.
+            Err(_) => failed.push(id),
         }
     }
     SearchOutcome {

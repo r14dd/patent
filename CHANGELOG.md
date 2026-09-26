@@ -8,6 +8,10 @@
   rejects a longer `text` with `400 ERR_TEXT_LENGTH`, so a sentence-length idea
   reported npm as "not reached". The adapter now sends the idea verbatim when
   it fits and otherwise the longest keywords that do
+- **A source that failed printed a warning over the TUI.** `search_sources`
+  wrote `⚠ <source> not reached` to stderr while the interface was on screen,
+  garbling the search view. Failed sources are already listed as "Not reached"
+  (and in `--json` as `sources_failed`), so the print is gone
 
 ## [0.14.0]
 
