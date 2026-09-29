@@ -16,7 +16,7 @@
 `patent` takes a plain-English dev-tool idea and searches 19 sources — package registries (crates.io, npm, PyPI, Homebrew, Packagist, Hex, and more) plus GitHub and Hacker News. Results are ranked by semantic similarity and summarised as **Open**, **Crowded**, or **Saturated**.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/r14dd/patent/main/showcase.gif" alt="patent demo" width="720">
+  <img src="https://vhs.charm.sh/vhs-2nc9g3XRuTkvUhFxuk3EJh.gif" alt="patent demo" width="720">
 </p>
 
 > Like a patent search, but for code. It finds prior art, yet, never certifies absence.
@@ -167,7 +167,7 @@ cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 ```
 
-The demo GIF embedded above (`showcase.gif`) is generated with [vhs](https://github.com/charmbracelet/vhs): `vhs showcase.tape`.
+The demo GIF embedded above is generated with [vhs](https://github.com/charmbracelet/vhs): `vhs showcase.tape`.
 
 ## License
 
