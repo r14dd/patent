@@ -107,7 +107,7 @@ impl Ranker {
     /// Load the embedding model. This is the expensive step; on the very first
     /// run it downloads ~80 MB into `model_cache_dir`.
     pub fn new() -> crate::Result<Self> {
-        let mut opts = fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
+        let mut opts = fastembed::TextInitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
             .with_show_download_progress(true);
         if let Some(dir) = model_cache_dir() {
             // Ensure the nested cache path exists before the downloader writes

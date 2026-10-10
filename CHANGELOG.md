@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Security
+
+- rustls bumped to 0.23.45 for RUSTSEC-2026-0285 (TLS 1.3 handshake messages
+  accepted across encryption levels). It sits under `reqwest`, so every source
+  adapter's HTTPS goes through it
+- lru bumped to 0.18.5 for RUSTSEC-2026-0253 (use-after-free in
+  `LruCache::pop()`). It comes in under `ratatui`
+
+### Changed
+
+- fastembed 6 → 7. The ranking model stays pinned to `AllMiniLML6V2`
+- Dependency refresh: clap 4.6.7, clap_complete 4.6.11, thiserror 2.0.21,
+  tokio-test 0.4.6
+
 ### Fixed
 
 - **npm was skipped for any idea longer than 64 characters.** The registry
