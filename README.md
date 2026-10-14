@@ -41,21 +41,39 @@ Before you build a dev tool, `patent` checks whether it already exists. One quer
 
 ## Install
 
+**macOS / Linux** — one command, no Rust needed:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/r14dd/patent/releases/latest/download/patent-installer.sh | sh
+```
+
+**Homebrew:**
+
+```bash
+brew install r14dd/patent/patent
+```
+
+**Windows** — grab `patent-x86_64-pc-windows-msvc.zip` from the [releases page](https://github.com/r14dd/patent/releases) and unzip it.
+
+**From source** (requires Rust):
+
 ```bash
 cargo install patent
 ```
 
-Pre-built binaries are on the [releases page](https://github.com/r14dd/patent/releases).
-
-**Ollama** (optional) powers the LLM verdict — install from [ollama.com](https://ollama.com), then `ollama pull qwen3.5`. Use `--fast` to skip it entirely.
-
-**GitHub token** (optional) — set `GITHUB_TOKEN` to raise the search rate limit from 10 to 30 requests/minute.
+<details>
+<summary>Build notes (Linux / glibc)</summary>
 
 **Linux build deps** — needed before `cargo install`:
 - Fedora / RHEL: `sudo dnf install openssl-devel gcc-c++`
 - Ubuntu / Debian: `sudo apt install libssl-dev g++`
 
 **glibc 2.38+** — both the prebuilt binaries and a from-source `cargo install` require glibc 2.38 or newer (Ubuntu 22.10+, Debian 13+, Fedora 38+). The bundled ONNX Runtime that powers local semantic search depends on it. On older distributions such as Ubuntu 22.04 (glibc 2.35), build inside a newer toolchain — e.g. a `debian:13` / `ubuntu:24.04` container — rather than on the host ([#37](https://github.com/r14dd/patent/issues/37)).
+</details>
+
+**Ollama** (optional) powers the LLM verdict — install from [ollama.com](https://ollama.com), then `ollama pull qwen3.5`. Use `--fast` to skip it entirely.
+
+**GitHub token** (optional) — set `GITHUB_TOKEN` to raise the search rate limit from 10 to 30 requests/minute.
 
 ## Usage
 
