@@ -33,7 +33,7 @@ pub struct Cli {
     pub api_key: Option<String>,
 
     /// Skip the embedding model and rank by keyword overlap instead.
-    /// Useful offline or to avoid the ~80 MB model download.
+    /// Useful offline or to avoid the ~90 MB model download.
     #[arg(long)]
     pub keyword_only: bool,
 

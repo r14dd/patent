@@ -201,7 +201,7 @@ async fn main() -> anyhow::Result<()> {
 
     if !args.keyword_only && !patent::rank::model_is_cached() {
         eprintln!(
-            "patent: downloading the embedding model for local semantic search (~80 MB, one-time)..."
+            "patent: downloading the embedding model for local semantic search (~90 MB, one-time)..."
         );
     }
 

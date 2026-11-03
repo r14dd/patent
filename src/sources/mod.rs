@@ -402,11 +402,19 @@ fn build_source(id: S, client: reqwest::Client) -> Box<dyn SourceAdapter> {
     }
 }
 
+/// The selected sources in a fixed order. `dedup` keeps the first copy of a
+/// match, so fanning out in `HashSet` order would let a different source's
+/// copy win on every run.
+fn sorted(ids: HashSet<S>) -> Vec<S> {
+    let mut ids: Vec<S> = ids.into_iter().collect();
+    ids.sort();
+    ids
+}
+
 /// Pick sources based on what the query is about.
 fn sources_for(query: &Query) -> Result<Vec<Box<dyn SourceAdapter>>> {
     let client = http_client()?;
-    let ids = detect_sources(&query.idea);
-    Ok(ids
+    Ok(sorted(detect_sources(&query.idea))
         .into_iter()
         .map(|id| build_source(id, client.clone()))
         .collect())
@@ -446,7 +454,7 @@ pub async fn search_filtered(
     for ex in exclude {
         ids.remove(ex);
     }
-    let sources: Vec<Box<dyn SourceAdapter>> = ids
+    let sources: Vec<Box<dyn SourceAdapter>> = sorted(ids)
         .into_iter()
         .map(|id| build_source(id, client.clone()))
         .collect();
@@ -530,9 +538,10 @@ pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -
 /// Homebrew formula whose homepage *is* that repo reports neither (35% of
 /// formulae have a homepage byte-identical to a GitHub repo URL, so this is a
 /// routine collision, not a corner case). Dropping the loser wholesale threw
-/// that information away -- and since the fan-out iterates a [`HashSet`], which
-/// copy arrives first is randomised per process, so the very same query showed
-/// a last-updated date on one run and none on the next.
+/// that information away -- and when the fan-out still iterated a `HashSet`,
+/// which copy arrived first was randomised per process, so the very same query
+/// showed a last-updated date on one run and none on the next. The fan-out now
+/// runs in `Source` declaration order (see `sorted`).
 pub fn dedup(matches: Vec<Match>) -> Vec<Match> {
     let mut by_url: HashMap<String, usize> = HashMap::new();
     let mut by_name_source: HashMap<(String, crate::model::Source), usize> = HashMap::new();
@@ -845,5 +854,20 @@ mod tests {
         };
         let sources = sources_for(&q).expect("client should build");
         assert!(!sources.is_empty());
+    }
+
+    #[test]
+    fn adapters_are_built_in_a_fixed_order() {
+        let q = Query {
+            idea: "a rust cli tool for docker containers on kubernetes".to_string(),
+            keywords: vec![],
+        };
+        // A single unsorted HashSet walk can come out sorted by chance; twenty
+        // in a row cannot.
+        for _ in 0..20 {
+            let ids: Vec<S> = sources_for(&q).unwrap().iter().map(|s| s.id()).collect();
+            assert!(ids.len() > 3);
+            assert!(ids.is_sorted(), "{ids:?}");
+        }
     }
 }

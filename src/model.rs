@@ -20,7 +20,7 @@ pub struct Query {
 /// Serializes to stable kebab-case identifiers (e.g. `"crates-io"`, not the Rust
 /// variant name). Old PascalCase names are accepted on deserialization for backward
 /// compatibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Source {
     #[serde(rename = "crates-io", alias = "CratesIo")]
     CratesIo,

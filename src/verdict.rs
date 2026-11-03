@@ -320,25 +320,17 @@ fn is_whole_word(text: &str, word: &str) -> bool {
     if word.is_empty() {
         return false;
     }
-    let mut remaining = text;
-    while let Some(pos) = remaining.find(word) {
-        let before_ok = remaining[..pos]
+    text.match_indices(word).any(|(pos, _)| {
+        let before_ok = text[..pos]
             .chars()
             .next_back()
             .is_none_or(|c| !c.is_alphanumeric());
-        let after_ok = remaining[pos + word.len()..]
+        let after_ok = text[pos + word.len()..]
             .chars()
             .next()
             .is_none_or(|c| !c.is_alphanumeric());
-        if before_ok && after_ok {
-            return true;
-        }
-        remaining = &remaining[pos + word.len()..];
-        if remaining.is_empty() {
-            break;
-        }
-    }
-    false
+        before_ok && after_ok
+    })
 }
 
 /// Extract JSON from a model response that may be wrapped in markdown fences.
@@ -499,4 +491,19 @@ pub async fn assess(
         Err(e) => return Err(e),
     };
     parse_verdict(&raw, matches, sources_checked, sources_failed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_whole_word;
+
+    #[test]
+    fn whole_word_checks_the_text_before_each_occurrence() {
+        assert!(!is_whole_word("atat", "at"));
+        assert!(!is_whole_word("atat \u{2026}", "at"));
+        assert!(is_whole_word("at atat", "at"));
+        assert!(is_whole_word("atat at", "at"));
+        assert!(is_whole_word("use ripgrep.", "ripgrep"));
+        assert!(!is_whole_word("ripgrepper", "ripgrep"));
+    }
 }

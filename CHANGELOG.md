@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.14.2]
+
+All five found by Martin Czygan (@miku) while porting patent to Go as
+[silt](https://github.com/miku/silt) — thanks.
+
+### Fixed
+
+- **A timestamp near year 9999 crashed the whole run.**
+  `9999-12-31T23:00:00-02:00` is valid, but converting it to UTC lands past
+  year 9999 and panicked. It now reads as "no date"
+- **One long description made ranking take 19 s instead of about 1 s.**
+  Embeddings ran in batches of 256 padded to the longest text, so a single
+  720-word description made every text in its batch cost as much. Texts are now
+  embedded in length order in batches of 32 (0.3 s); scores match to within
+  float rounding
+- **Which duplicate survived dedup changed from run to run.** Sources were
+  queried in `HashSet` order and dedup keeps the first copy. They now run in a
+  fixed order, so `sources_checked` in `--json` is stable too
+- **A gap could be dropped for naming a match it didn't name.** The whole-word
+  check lost the character before each repeat occurrence, so `"atat"` counted
+  as containing the word `"at"`
+- The model download is ~90 MB, not ~80 MB
+
 ## [0.14.1]
 
 ### Security

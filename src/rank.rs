@@ -61,7 +61,7 @@ pub struct Ranker {
 /// Where the embedding model is cached between runs.
 ///
 /// Defaults to a stable per-user cache directory (e.g. `~/.cache/patent` on
-/// Linux, `~/Library/Caches/patent` on macOS) so the ~80 MB model downloads
+/// Linux, `~/Library/Caches/patent` on macOS) so the ~90 MB model downloads
 /// once for the whole machine — not once per working directory, which is what
 /// `fastembed`'s default CWD-relative `.fastembed_cache` would do.
 fn model_cache_dir() -> Option<std::path::PathBuf> {
@@ -71,7 +71,7 @@ fn model_cache_dir() -> Option<std::path::PathBuf> {
 /// Whether the embedding model already appears to be cached locally.
 ///
 /// Best-effort, used only so the binary can print a one-time "downloading…"
-/// notice on the first run (the ~80 MB fetch otherwise looks like a hang before
+/// notice on the first run (the ~90 MB fetch otherwise looks like a hang before
 /// `fastembed`'s own progress bar appears). If the cache dir can't be resolved
 /// we assume it's present and stay quiet rather than risk a spurious notice.
 ///
@@ -105,7 +105,7 @@ fn has_onnx_in_tree(dir: &std::path::Path) -> bool {
 
 impl Ranker {
     /// Load the embedding model. This is the expensive step; on the very first
-    /// run it downloads ~80 MB into `model_cache_dir`.
+    /// run it downloads ~90 MB into `model_cache_dir`.
     pub fn new() -> crate::Result<Self> {
         let mut opts = fastembed::TextInitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
             .with_show_download_progress(true);
@@ -150,11 +150,20 @@ impl Ranker {
                 }
             })
             .collect();
-        let descriptions: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        let match_embs = self
+        // Each batch is padded to its longest text, so one long description in
+        // an unsorted batch makes every text in it cost as much. Embed in
+        // length order with small batches, then restore the original order.
+        let mut order: Vec<usize> = (0..texts.len()).collect();
+        order.sort_by_key(|&i| texts[i].len());
+        let sorted: Vec<&str> = order.iter().map(|&i| texts[i].as_str()).collect();
+        let sorted_embs = self
             .model
-            .embed(descriptions, None)
+            .embed(sorted, Some(32))
             .map_err(|e| crate::Error::Embedding(e.to_string()))?;
+        let mut match_embs = vec![Vec::new(); texts.len()];
+        for (emb, &i) in sorted_embs.into_iter().zip(&order) {
+            match_embs[i] = emb;
+        }
 
         Ok(score_sort_limit(query_emb, matches, &match_embs, limit))
     }
@@ -190,7 +199,7 @@ pub fn rank_by_keywords(query: &Query, mut matches: Vec<Match>, limit: usize) ->
 /// Convenience wrapper: load model, embed, rank in one call.
 ///
 /// **Blocking.** This runs synchronous, CPU-bound `fastembed` work (and may
-/// download ~80 MB on the first run). Calling it directly from an `async` task
+/// download ~90 MB on the first run). Calling it directly from an `async` task
 /// stalls the Tokio executor for the whole duration. From async code use
 /// [`rank_async`], or drive the split [`Ranker`] / [`Ranker::embed_query`] /
 /// [`Ranker::rank_with`] API inside [`tokio::task::spawn_blocking`].
@@ -232,7 +241,7 @@ mod tests {
     use crate::model::Source;
     use std::sync::OnceLock;
 
-    /// Shared ranker so the ~80 MB model downloads only once across all tests
+    /// Shared ranker so the ~90 MB model downloads only once across all tests
     /// (parallel test threads race on the download otherwise).
     fn shared_ranker() -> &'static std::sync::Mutex<Ranker> {
         static RANKER: OnceLock<std::sync::Mutex<Ranker>> = OnceLock::new();

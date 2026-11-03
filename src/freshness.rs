@@ -75,7 +75,7 @@ pub fn parse(ts: &str) -> Option<OffsetDateTime> {
 ///
 /// [`Match::last_updated`]: crate::model::Match::last_updated
 fn canonical(dt: OffsetDateTime) -> Option<String> {
-    dt.to_offset(time::UtcOffset::UTC)
+    dt.checked_to_offset(time::UtcOffset::UTC)?
         .replace_nanosecond(0)
         .ok()?
         .format(&Rfc3339)
@@ -243,6 +243,8 @@ mod tests {
         }
         // Out-of-range epochs are rejected, not wrapped.
         assert_eq!(from_unix_secs(i64::MAX), None);
+        // Valid as written, but the offset carries it past year 9999 in UTC.
+        assert_eq!(from_rfc3339("9999-12-31T23:00:00-02:00"), None);
         assert_eq!(from_unix_millis(i64::MAX), None);
     }
 
