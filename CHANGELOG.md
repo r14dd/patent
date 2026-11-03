@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.3]
+
+### Security
+
+- rustls-webpki bumped to 0.103.16 for RUSTSEC-2026-0382 (certificate
+  verification may accept distrusted intermediates). It sits under `reqwest`
+  via `rustls`, so every source adapter's HTTPS goes through it
+- webpki-roots and webpki-root-certs bumped to 1.0.11 for RUSTSEC-2026-0381 and
+  RUSTSEC-2026-0383 (bundled roots still trusted distrusted emSign
+  intermediates). They come in under `fastembed` → `hf-hub` → `ureq`, which
+  downloads the embedding model
+
 ## [0.14.2]
 
 All five found by Martin Czygan (@miku) while porting patent to Go as
