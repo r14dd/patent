@@ -47,16 +47,16 @@ jobs:
         run: cargo build --release
 
   msrv:
-    name: msrv (1.88)
+    name: msrv (1.92)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       # Enforce the declared rust-version / MSRV badge so a dependency bump that
       # raises the real minimum compiler fails the PR instead of silently
-      # invalidating the 1.88+ claim.
-      - name: Install 1.88 toolchain
-        uses: dtolnay/rust-toolchain@1.88
+      # invalidating the 1.92+ claim.
+      - name: Install 1.92 toolchain
+        uses: dtolnay/rust-toolchain@1.92
 
       - uses: Swatinem/rust-cache@v2
 

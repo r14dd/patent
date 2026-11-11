@@ -2,7 +2,7 @@
 name = "patent"
 version = "0.14.3"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.92"
 license = "MIT OR Apache-2.0"
 description = "A prior-art search for your code ideas — has this dev tool already been shipped?"
 repository = "https://github.com/r14dd/patent"
