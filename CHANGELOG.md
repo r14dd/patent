@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **MSRV raised to 1.92**: `ort` 2.0.0-rc.15 (via `fastembed` 7.6.1) requires
+  rustc 1.92. The CI MSRV job and README badge follow
+
 ## [0.14.3]
 
 ### Security
