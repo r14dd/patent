@@ -9,7 +9,7 @@
   <a href="https://crates.io/crates/patent"><img src="https://img.shields.io/crates/v/patent.svg?logo=rust" alt="crates.io"></a>
   <a href="https://docs.rs/patent"><img src="https://docs.rs/patent/badge.svg" alt="docs.rs"></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="license"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/MSRV-1.88%2B-lightgray.svg?logo=rust" alt="MSRV"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/MSRV-1.92%2B-lightgray.svg?logo=rust" alt="MSRV"></a>
   <a href="https://ratatui.rs/"><img src="https://ratatui.rs/built-with-ratatui/badge.svg" alt="Built With Ratatui"></a>
 </p>
 
