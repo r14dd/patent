@@ -65,8 +65,7 @@ jobs:
 
   macos:
     name: macos (build check)
-    # Same image the release builds aarch64-apple-darwin on.
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
