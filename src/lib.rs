@@ -39,6 +39,7 @@ pub mod llm;
 pub mod model;
 pub mod ollama;
 pub mod openai;
+pub mod pipeline;
 pub mod rank;
 pub mod sources;
 #[doc(hidden)]

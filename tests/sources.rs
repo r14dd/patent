@@ -2064,3 +2064,49 @@ async fn aur_server_error_is_propagated() {
 
     assert!(aur_for(&server).search(&query()).await.is_err());
 }
+
+// ── per-source timeout ─────────────────────────────────────────────────
+
+struct HangingSource;
+
+#[async_trait::async_trait]
+impl SourceAdapter for HangingSource {
+    fn id(&self) -> SourceId {
+        SourceId::PyPI
+    }
+    async fn search(&self, _query: &Query) -> patent::Result<Vec<Match>> {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        unreachable!()
+    }
+    fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(200)
+    }
+}
+
+#[tokio::test]
+async fn hanging_source_times_out_and_is_reported_failed() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/crates"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(two_crate_body()))
+        .mount(&server)
+        .await;
+
+    let sources: Vec<Box<dyn SourceAdapter>> = vec![
+        Box::new(HangingSource),
+        Box::new(CratesIo::with_base_url(
+            reqwest::Client::new(),
+            server.uri(),
+        )),
+    ];
+
+    let SearchOutcome {
+        matches,
+        reached,
+        failed,
+    } = search_sources(&sources, &query()).await;
+
+    assert_eq!(reached, vec![SourceId::CratesIo]);
+    assert_eq!(failed, vec![SourceId::PyPI]);
+    assert_eq!(matches.len(), 2);
+}

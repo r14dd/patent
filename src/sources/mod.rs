@@ -38,6 +38,12 @@ pub trait SourceAdapter: Send + Sync {
 
     /// Search this source for prior art matching `query`.
     async fn search(&self, query: &Query) -> Result<Vec<Match>>;
+
+    /// Wall-clock cap for the entire search attempt (including one retry).
+    /// Sources that make multiple sequential API calls can override this.
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 use crate::model::Source as S;
@@ -328,18 +334,28 @@ fn is_retryable(e: &crate::Error) -> bool {
 pub async fn search_sources(sources: &[Box<dyn SourceAdapter>], query: &Query) -> SearchOutcome {
     let results = join_all(sources.iter().map(|s| {
         let id = s.id();
+        let deadline = s.timeout();
         async move {
-            let first = s.search(query).await;
-            // Return immediately on success, or on a permanent failure a retry
-            // can't fix (a walled/unavailable search surface): retrying that only
-            // burns 800ms hitting the same wall. Transient failures fall through.
-            match &first {
-                Ok(_) => return (id, first),
-                Err(e) if !is_retryable(e) => return (id, first),
-                Err(_) => {}
+            let inner = async {
+                let first = s.search(query).await;
+                match &first {
+                    Ok(_) => return first,
+                    Err(e) if !is_retryable(e) => return first,
+                    Err(_) => {}
+                }
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                s.search(query).await
+            };
+            match tokio::time::timeout(deadline, inner).await {
+                Ok(result) => (id, result),
+                Err(_) => (
+                    id,
+                    Err(crate::Error::Unavailable(format!(
+                        "{id}: timed out after {:.0}s",
+                        deadline.as_secs_f64()
+                    ))),
+                ),
             }
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            (id, s.search(query).await)
         }
     }))
     .await;
