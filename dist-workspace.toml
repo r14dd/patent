@@ -17,8 +17,6 @@ publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax).
 # Intel macOS is omitted: ort-sys ships no Intel-macOS prebuilt. It installs
 # via `cargo install patent` with a local onnxruntime.
-pr-run-mode = "upload"
-allow-dirty = ["ci"]
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # The onnxruntime prebuilt is built against the dynamic CRT (/MD); dist's
 # default +crt-static links libucrt and leaves its __imp_* CRT imports
