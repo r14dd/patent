@@ -29,3 +29,5 @@ msvc-crt-static = false
 [dist.github-custom-runners]
 x86_64-unknown-linux-gnu = "ubuntu-24.04"
 aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
+# macos-14 images are retired; a pinned label stops the release with no runner.
+aarch64-apple-darwin = "macos-latest"
