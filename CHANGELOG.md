@@ -1,6 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [0.14.4]
+
+### Security
+
+- cookie bumped to 0.18.3 for RUSTSEC-2026-0594 (private cookie nonces can
+  repeat in processes that fork)
+- quinn-udp bumped to 0.5.16 for RUSTSEC-2026-0538 (receive loop can spin
+  after a truncated datagram)
+- url bumped to 2.5.9 for RUSTSEC-2026-0592 (stack overflow in `Url::origin()`
+  on nested `blob:` URLs)
+- rustix bumped to 1.1.6 for RUSTSEC-2026-0486 (xattr functions mark unwritten
+  bytes as initialized given a zero-length buffer)
+- Yanked clipboard-win 5.4.1 and der 0.8.0 replaced with 5.4.3 and 0.8.3
 
 ### Changed
 
